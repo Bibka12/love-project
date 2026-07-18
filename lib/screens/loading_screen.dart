@@ -19,12 +19,14 @@ class LoadingScreen extends StatefulWidget {
 class _LoadingScreenState extends State<LoadingScreen>
     with TickerProviderStateMixin {
   late final AnimationController backgroundController;
-  late final AnimationController heartController;
-  late final Animation<double> heartAnimation;
+  late final AnimationController logoController;
+
+  late final Animation<double> logoScaleAnimation;
+  late final Animation<double> logoRotationAnimation;
 
   final List<Timer> timers = [];
 
-  bool showHeart = false;
+  bool showLogo = false;
   bool showFirstText = false;
   bool showSecondText = false;
   bool checkingDevice = true;
@@ -36,33 +38,41 @@ class _LoadingScreenState extends State<LoadingScreen>
 
     backgroundController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 5),
+      duration: const Duration(seconds: 6),
     )..repeat(reverse: true);
 
-    heartController = AnimationController(
+    logoController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 900),
+      duration: const Duration(milliseconds: 1800),
     );
 
-    heartAnimation =
-        TweenSequence<double>([
-          TweenSequenceItem(
-            tween: Tween<double>(begin: 0.85, end: 1.08),
-            weight: 45,
-          ),
-          TweenSequenceItem(
-            tween: Tween<double>(begin: 1.08, end: 1),
-            weight: 55,
-          ),
-        ]).animate(
-          CurvedAnimation(parent: heartController, curve: Curves.easeInOut),
-        );
+    logoScaleAnimation = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween<double>(
+          begin: 0.94,
+          end: 1.045,
+        ).chain(CurveTween(curve: Curves.easeOut)),
+        weight: 50,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(
+          begin: 1.045,
+          end: 0.94,
+        ).chain(CurveTween(curve: Curves.easeIn)),
+        weight: 50,
+      ),
+    ]).animate(logoController);
+
+    logoRotationAnimation = Tween<double>(
+      begin: -0.012,
+      end: 0.012,
+    ).animate(CurvedAnimation(parent: logoController, curve: Curves.easeInOut));
 
     startApplication();
   }
 
   void addTimer(Duration duration, VoidCallback callback) {
-    final Timer timer = Timer(duration, () {
+    final timer = Timer(duration, () {
       if (!mounted) return;
       callback();
     });
@@ -71,9 +81,9 @@ class _LoadingScreenState extends State<LoadingScreen>
   }
 
   Future<void> startApplication() async {
-    final SharedPreferences preferences = await SharedPreferences.getInstance();
+    final preferences = await SharedPreferences.getInstance();
 
-    final bool deviceUnlocked = preferences.getBool('device_unlocked') ?? false;
+    final deviceUnlocked = preferences.getBool('device_unlocked') ?? false;
 
     if (!mounted) return;
 
@@ -81,28 +91,28 @@ class _LoadingScreenState extends State<LoadingScreen>
       checkingDevice = false;
     });
 
-    addTimer(const Duration(milliseconds: 350), () {
+    addTimer(const Duration(milliseconds: 120), () {
       setState(() {
-        showHeart = true;
+        showLogo = true;
       });
 
-      heartController.repeat(reverse: true);
+      logoController.repeat(reverse: true);
     });
 
-    addTimer(const Duration(milliseconds: 1200), () {
+    addTimer(const Duration(milliseconds: 850), () {
       setState(() {
         showFirstText = true;
       });
     });
 
     if (deviceUnlocked) {
-      addTimer(const Duration(milliseconds: 2600), () {
+      addTimer(const Duration(milliseconds: 2300), () {
         setState(() {
           showFirstText = false;
         });
       });
 
-      addTimer(const Duration(milliseconds: 3150), () {
+      addTimer(const Duration(milliseconds: 2750), () {
         setState(() {
           showSecondText = true;
         });
@@ -110,29 +120,26 @@ class _LoadingScreenState extends State<LoadingScreen>
         HapticFeedback.mediumImpact();
       });
 
-      addTimer(const Duration(milliseconds: 5000), openHomeScreen);
+      addTimer(const Duration(milliseconds: 4400), openHomeScreen);
     } else {
-      addTimer(const Duration(milliseconds: 2600), openPassword);
+      addTimer(const Duration(milliseconds: 2300), openPassword);
     }
   }
 
   Future<void> openPassword() async {
     if (openingNextScreen || !mounted) return;
 
-    final bool? result = await showDialog<bool>(
+    final result = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      barrierColor: Colors.black.withValues(alpha: 0.72),
-      builder: (_) {
-        return const PasswordScreen();
-      },
+      barrierColor: Colors.black.withValues(alpha: 0.78),
+      builder: (_) => const PasswordScreen(),
     );
 
     if (!mounted) return;
 
     if (result == true) {
-      final SharedPreferences preferences =
-          await SharedPreferences.getInstance();
+      final preferences = await SharedPreferences.getInstance();
 
       await preferences.setBool('device_unlocked', true);
 
@@ -143,15 +150,13 @@ class _LoadingScreenState extends State<LoadingScreen>
   }
 
   Future<void> showWelcomeAnimation() async {
-    await HapticFeedback.mediumImpact();
-
-    if (!mounted) return;
+    HapticFeedback.mediumImpact();
 
     setState(() {
       showFirstText = false;
     });
 
-    await Future<void>.delayed(const Duration(milliseconds: 450));
+    await Future<void>.delayed(const Duration(milliseconds: 350));
 
     if (!mounted) return;
 
@@ -159,7 +164,7 @@ class _LoadingScreenState extends State<LoadingScreen>
       showSecondText = true;
     });
 
-    await Future<void>.delayed(const Duration(milliseconds: 2000));
+    await Future<void>.delayed(const Duration(milliseconds: 1650));
 
     if (!mounted) return;
 
@@ -171,27 +176,28 @@ class _LoadingScreenState extends State<LoadingScreen>
 
     openingNextScreen = true;
 
-    await HapticFeedback.lightImpact();
-
-    if (!mounted) return;
+    HapticFeedback.lightImpact();
 
     Navigator.pushReplacement(
       context,
       PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 1100),
+        transitionDuration: const Duration(milliseconds: 850),
+
         pageBuilder: (context, animation, secondaryAnimation) {
-          final Animation<double> curvedAnimation = CurvedAnimation(
+          final curvedAnimation = CurvedAnimation(
             parent: animation,
             curve: Curves.easeOutCubic,
           );
 
           return FadeTransition(
             opacity: curvedAnimation,
+
             child: ScaleTransition(
               scale: Tween<double>(
-                begin: 0.97,
+                begin: 0.985,
                 end: 1,
               ).animate(curvedAnimation),
+
               child: const HomeScreen(),
             ),
           );
@@ -202,12 +208,12 @@ class _LoadingScreenState extends State<LoadingScreen>
 
   @override
   void dispose() {
-    for (final Timer timer in timers) {
+    for (final timer in timers) {
       timer.cancel();
     }
 
     backgroundController.dispose();
-    heartController.dispose();
+    logoController.dispose();
 
     super.dispose();
   }
@@ -216,130 +222,208 @@ class _LoadingScreenState extends State<LoadingScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xff05070D),
+
       body: AnimatedBuilder(
         animation: backgroundController,
+
         builder: (context, child) {
           return Container(
             width: double.infinity,
             height: double.infinity,
+
             decoration: const BoxDecoration(
               gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+
                 colors: [
                   Color(0xff02040D),
-                  Color(0xff120821),
-                  Color(0xff35102F),
-                  Color(0xff080A18),
+                  Color(0xff10091B),
+                  Color(0xff251127),
+                  Color(0xff3A1735),
                 ],
+
+                stops: [0, 0.34, 0.7, 1],
               ),
             ),
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: CustomPaint(
-                    painter: WelcomeStarsPainter(
-                      animationValue: backgroundController.value,
+
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final width = constraints.maxWidth;
+                final height = constraints.maxHeight;
+
+                final isCompactHeight = height < 700;
+
+                final logoSize = (width * (isCompactHeight ? 0.50 : 0.56))
+                    .clamp(185.0, 255.0);
+
+                final titleSize = (width * 0.082).clamp(28.0, 38.0);
+
+                final subtitleSize = (width * 0.041).clamp(14.0, 18.0);
+
+                return Stack(
+                  children: [
+                    Positioned.fill(
+                      child: CustomPaint(
+                        painter: WelcomeStarsPainter(
+                          animationValue: backgroundController.value,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
 
-                Positioned(
-                  top: -120,
-                  right: -100,
-                  child: buildGlow(
-                    size: 310,
-                    color: const Color(0xff9D2EFF),
-                    opacity: 0.08 + backgroundController.value * 0.05,
-                  ),
-                ),
+                    Positioned(
+                      top: -130,
+                      right: -110,
 
-                Positioned(
-                  bottom: -140,
-                  left: -110,
-                  child: buildGlow(
-                    size: 330,
-                    color: const Color(0xffFF2E78),
-                    opacity: 0.07 + backgroundController.value * 0.04,
-                  ),
-                ),
+                      child: buildGlow(
+                        size: 340,
+                        color: const Color(0xff9D2EFF),
+                        opacity: 0.09 + backgroundController.value * 0.045,
+                      ),
+                    ),
 
-                SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 26),
-                    child: Column(
-                      children: [
-                        const Spacer(),
+                    Positioned(
+                      bottom: -140,
+                      left: -120,
 
-                        AnimatedOpacity(
-                          duration: const Duration(milliseconds: 900),
-                          opacity: showHeart ? 1 : 0,
-                          child: AnimatedScale(
-                            duration: const Duration(milliseconds: 900),
-                            curve: Curves.easeOutBack,
-                            scale: showHeart ? 1 : 0.4,
-                            child: ScaleTransition(
-                              scale: heartAnimation,
-                              child: buildHeart(),
-                            ),
-                          ),
+                      child: buildGlow(
+                        size: 370,
+                        color: const Color(0xffFF2E78),
+                        opacity: 0.08 + backgroundController.value * 0.04,
+                      ),
+                    ),
+
+                    SafeArea(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: width < 390 ? 20 : 28,
                         ),
 
-                        const SizedBox(height: 55),
+                        child: Column(
+                          children: [
+                            SizedBox(height: isCompactHeight ? 28 : 50),
 
-                        SizedBox(
-                          height: 150,
-                          child: Center(
-                            child: AnimatedSwitcher(
+                            AnimatedOpacity(
                               duration: const Duration(milliseconds: 700),
-                              switchInCurve: Curves.easeOutCubic,
-                              switchOutCurve: Curves.easeInCubic,
-                              transitionBuilder: (child, animation) {
-                                return FadeTransition(
-                                  opacity: animation,
-                                  child: SlideTransition(
-                                    position: Tween<Offset>(
-                                      begin: const Offset(0, 0.15),
-                                      end: Offset.zero,
-                                    ).animate(animation),
-                                    child: child,
-                                  ),
-                                );
-                              },
-                              child: showSecondText
-                                  ? buildSecondText()
-                                  : showFirstText
-                                  ? buildFirstText()
-                                  : checkingDevice
-                                  ? buildLoadingIndicator()
-                                  : const SizedBox.shrink(),
-                            ),
-                          ),
-                        ),
+                              opacity: showLogo ? 1 : 0,
 
-                        const Spacer(),
+                              child: AnimatedScale(
+                                duration: const Duration(milliseconds: 850),
+                                curve: Curves.easeOutBack,
+                                scale: showLogo ? 1 : 0.55,
 
-                        AnimatedOpacity(
-                          duration: const Duration(milliseconds: 700),
-                          opacity: showHeart ? 0.55 : 0,
-                          child: Padding(
-                            padding: const EdgeInsets.only(bottom: 25),
-                            child: Text(
-                              'N ♥ B',
-                              style: GoogleFonts.poppins(
-                                color: Colors.white54,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
-                                letterSpacing: 5,
+                                child: AnimatedBuilder(
+                                  animation: logoController,
+
+                                  builder: (context, child) {
+                                    return Transform.rotate(
+                                      angle: logoRotationAnimation.value,
+
+                                      child: Transform.scale(
+                                        scale: logoScaleAnimation.value,
+
+                                        child: child,
+                                      ),
+                                    );
+                                  },
+
+                                  child: buildMainLogo(size: logoSize),
+                                ),
                               ),
                             ),
-                          ),
+
+                            SizedBox(height: isCompactHeight ? 25 : 38),
+
+                            Expanded(
+                              child: Center(
+                                child: AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 600),
+
+                                  switchInCurve: Curves.easeOutCubic,
+
+                                  switchOutCurve: Curves.easeInCubic,
+
+                                  transitionBuilder: (child, animation) {
+                                    return FadeTransition(
+                                      opacity: animation,
+
+                                      child: SlideTransition(
+                                        position: Tween<Offset>(
+                                          begin: const Offset(0, 0.12),
+                                          end: Offset.zero,
+                                        ).animate(animation),
+
+                                        child: child,
+                                      ),
+                                    );
+                                  },
+
+                                  child: showSecondText
+                                      ? buildSecondText(
+                                          titleSize: titleSize,
+                                          subtitleSize: subtitleSize,
+                                        )
+                                      : showFirstText
+                                      ? buildFirstText(
+                                          titleSize: titleSize,
+                                          subtitleSize: subtitleSize,
+                                        )
+                                      : checkingDevice
+                                      ? buildLoadingIndicator()
+                                      : buildLoadingDots(),
+                                ),
+                              ),
+                            ),
+
+                            AnimatedOpacity(
+                              duration: const Duration(milliseconds: 700),
+                              opacity: showLogo ? 1 : 0,
+
+                              child: Padding(
+                                padding: EdgeInsets.only(
+                                  bottom: isCompactHeight ? 18 : 28,
+                                ),
+
+                                child: Column(
+                                  children: [
+                                    Text(
+                                      'FOR NURSAULE',
+                                      style: GoogleFonts.poppins(
+                                        color: Colors.white38,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        letterSpacing: 3.8,
+                                      ),
+                                    ),
+
+                                    const SizedBox(height: 7),
+
+                                    Container(
+                                      width: 45,
+                                      height: 2,
+
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(20),
+
+                                        gradient: const LinearGradient(
+                                          colors: [
+                                            Color(0xffFF2E78),
+                                            Color(0xff9D2EFF),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
-                  ),
-                ),
-              ],
+                  ],
+                );
+              },
             ),
           );
         },
@@ -347,57 +431,164 @@ class _LoadingScreenState extends State<LoadingScreen>
     );
   }
 
-  Widget buildFirstText() {
+  Widget buildMainLogo({required double size}) {
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+
+        gradient: RadialGradient(
+          center: const Alignment(-0.25, -0.25),
+
+          colors: [
+            const Color(0xffFF6FA5).withValues(alpha: 0.28),
+
+            const Color(0xffFF2E78).withValues(alpha: 0.18),
+
+            const Color(0xff9D2EFF).withValues(alpha: 0.09),
+
+            Colors.transparent,
+          ],
+
+          stops: const [0, 0.35, 0.72, 1],
+        ),
+
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.20),
+          width: 1.2,
+        ),
+
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xffFF2E78).withValues(alpha: 0.42),
+            blurRadius: 65,
+            spreadRadius: 8,
+          ),
+
+          BoxShadow(
+            color: const Color(0xff9D2EFF).withValues(alpha: 0.28),
+            blurRadius: 110,
+            spreadRadius: 18,
+          ),
+        ],
+      ),
+
+      child: Stack(
+        alignment: Alignment.center,
+
+        children: [
+          Container(
+            width: size * 0.70,
+            height: size * 0.70,
+
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+
+              color: Colors.white.withValues(alpha: 0.05),
+
+              border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+            ),
+          ),
+
+          Text(
+            'N♥B',
+
+            style: GoogleFonts.poppins(
+              color: Colors.white,
+              fontSize: size * 0.23,
+              fontWeight: FontWeight.w800,
+              letterSpacing: size * 0.018,
+
+              shadows: [
+                Shadow(
+                  color: const Color(0xffFF2E78).withValues(alpha: 0.8),
+                  blurRadius: 24,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget buildFirstText({
+    required double titleSize,
+    required double subtitleSize,
+  }) {
     return Column(
       key: const ValueKey('first-text'),
       mainAxisSize: MainAxisSize.min,
+
       children: [
         Text(
           'Я ждал именно тебя',
+
           textAlign: TextAlign.center,
+
           style: GoogleFonts.poppins(
             color: Colors.white,
-            fontSize: 28,
-            fontWeight: FontWeight.bold,
-            height: 1.3,
+            fontSize: titleSize,
+            fontWeight: FontWeight.w700,
+            height: 1.18,
+            letterSpacing: -0.5,
           ),
         ),
 
-        const SizedBox(height: 12),
+        const SizedBox(height: 13),
 
         Text(
           'Мой самый особенный человек ❤️',
+
           textAlign: TextAlign.center,
-          style: GoogleFonts.poppins(color: Colors.white60, fontSize: 15),
+
+          style: GoogleFonts.poppins(
+            color: Colors.white60,
+            fontSize: subtitleSize,
+            fontWeight: FontWeight.w400,
+            height: 1.4,
+          ),
         ),
       ],
     );
   }
 
-  Widget buildSecondText() {
+  Widget buildSecondText({
+    required double titleSize,
+    required double subtitleSize,
+  }) {
     return Column(
       key: const ValueKey('second-text'),
       mainAxisSize: MainAxisSize.min,
+
       children: [
         Text(
-          'Добро пожаловать домой',
+          'Добро пожаловать',
+
           textAlign: TextAlign.center,
+
           style: GoogleFonts.poppins(
             color: Colors.white,
-            fontSize: 28,
-            fontWeight: FontWeight.bold,
-            height: 1.3,
+            fontSize: titleSize,
+            fontWeight: FontWeight.w700,
+            height: 1.18,
+            letterSpacing: -0.5,
           ),
         ),
 
-        const SizedBox(height: 12),
+        const SizedBox(height: 13),
 
         Text(
           'Нурсауле ❤️',
+
           textAlign: TextAlign.center,
+
           style: GoogleFonts.poppins(
-            color: const Color(0xffFF81B0),
-            fontSize: 20,
+            color: const Color(0xffFF8AB7),
+            fontSize: subtitleSize + 6,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -407,44 +598,29 @@ class _LoadingScreenState extends State<LoadingScreen>
 
   Widget buildLoadingIndicator() {
     return const SizedBox(
-      key: ValueKey('loading'),
-      width: 25,
-      height: 25,
+      key: ValueKey('loading-indicator'),
+      width: 34,
+      height: 34,
+
       child: CircularProgressIndicator(
         color: Color(0xffFF5E99),
-        strokeWidth: 2.4,
+        strokeWidth: 2.8,
       ),
     );
   }
 
-  Widget buildHeart() {
-    return Container(
-      width: 165,
-      height: 165,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: RadialGradient(
-          colors: [
-            const Color(0xffFF2E78).withValues(alpha: 0.25),
-            const Color(0xff9D2EFF).withValues(alpha: 0.05),
-          ],
-        ),
-        border: Border.all(color: Colors.pinkAccent.withValues(alpha: 0.30)),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xffFF2E78).withValues(alpha: 0.40),
-            blurRadius: 65,
-            spreadRadius: 9,
-          ),
-          BoxShadow(
-            color: const Color(0xff9D2EFF).withValues(alpha: 0.22),
-            blurRadius: 95,
-            spreadRadius: 15,
-          ),
-        ],
-      ),
-      child: const Text('❤️', style: TextStyle(fontSize: 83)),
+  Widget buildLoadingDots() {
+    return const Row(
+      key: ValueKey('loading-dots'),
+      mainAxisSize: MainAxisSize.min,
+
+      children: [
+        LoadingDot(delay: 0),
+        SizedBox(width: 9),
+        LoadingDot(delay: 150),
+        SizedBox(width: 9),
+        LoadingDot(delay: 300),
+      ],
     );
   }
 
@@ -456,16 +632,89 @@ class _LoadingScreenState extends State<LoadingScreen>
     return Container(
       width: size,
       height: size,
+
       decoration: BoxDecoration(
         shape: BoxShape.circle,
+
         color: color.withValues(alpha: opacity),
+
         boxShadow: [
           BoxShadow(
             color: color.withValues(alpha: opacity),
-            blurRadius: 110,
-            spreadRadius: 25,
+            blurRadius: 115,
+            spreadRadius: 28,
           ),
         ],
+      ),
+    );
+  }
+}
+
+class LoadingDot extends StatefulWidget {
+  final int delay;
+
+  const LoadingDot({super.key, required this.delay});
+
+  @override
+  State<LoadingDot> createState() => _LoadingDotState();
+}
+
+class _LoadingDotState extends State<LoadingDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController controller;
+  late final Animation<double> animation;
+
+  @override
+  void initState() {
+    super.initState();
+
+    controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 850),
+    );
+
+    animation = Tween<double>(
+      begin: 0.45,
+      end: 1,
+    ).animate(CurvedAnimation(parent: controller, curve: Curves.easeInOut));
+
+    Future<void>.delayed(Duration(milliseconds: widget.delay), () {
+      if (mounted) {
+        controller.repeat(reverse: true);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: animation,
+
+      child: ScaleTransition(
+        scale: animation,
+
+        child: Container(
+          width: 9,
+          height: 9,
+
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.white,
+
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xffFF2E78).withValues(alpha: 0.7),
+                blurRadius: 9,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -478,22 +727,23 @@ class WelcomeStarsPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final Random random = Random(37);
+    final random = Random(37);
 
-    for (int i = 0; i < 130; i++) {
-      final double x = random.nextDouble() * size.width;
-      final double originalY = random.nextDouble() * size.height;
+    final starCount = size.width < 600 ? 100 : 150;
 
-      final double movement = sin(animationValue * pi * 2 + i) * 4;
+    for (int i = 0; i < starCount; i++) {
+      final x = random.nextDouble() * size.width;
+      final originalY = random.nextDouble() * size.height;
 
-      final double radius = random.nextDouble() * 1.55 + 0.25;
+      final movement = sin(animationValue * pi * 2 + i) * 3.5;
 
-      final double baseOpacity = random.nextDouble() * 0.50 + 0.10;
+      final radius = random.nextDouble() * 1.45 + 0.25;
 
-      final double pulse =
-          0.55 + 0.45 * sin(animationValue * pi * 2 + i * 0.47).abs();
+      final baseOpacity = random.nextDouble() * 0.48 + 0.10;
 
-      final Paint paint = Paint()
+      final pulse = 0.55 + 0.45 * sin(animationValue * pi * 2 + i * 0.47).abs();
+
+      final paint = Paint()
         ..color = Colors.white.withValues(
           alpha: (baseOpacity * pulse).clamp(0.0, 1.0),
         );

@@ -42,5 +42,12 @@ flutter_launcher_icons:
   android: true
   ios: true
   image_path: "assets/nursaule.png"
+
   adaptive_icon_background: "#F8C3D8"
   adaptive_icon_foreground: "assets/nursaule.png"
+
+  web:
+    generate: true
+    image_path: "assets/nursaule.png"
+    background_color: "#F8C3D8"
+    theme_color: "#F8C3D8"
