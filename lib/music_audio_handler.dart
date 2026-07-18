@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
@@ -74,7 +75,16 @@ class MusicAudioHandler extends BaseAudioHandler
 
     for (int index = 0; index < songs.length; index++) {
       final song = songs[index];
-      final coverFile = await _copyCoverToLocalFile(song.coverPath, index);
+
+      // На Android/iOS копируем обложку в настоящий файл.
+      // В Web dart:io/path_provider недоступны, поэтому берём asset по URL.
+      final Uri coverUri;
+      if (kIsWeb) {
+        coverUri = Uri.base.resolve(song.coverPath);
+      } else {
+        final coverFile = await _copyCoverToLocalFile(song.coverPath, index);
+        coverUri = coverFile.uri;
+      }
 
       mediaItems.add(
         MediaItem(
@@ -82,7 +92,7 @@ class MusicAudioHandler extends BaseAudioHandler
           album: 'Для Нурсауле ❤️',
           title: song.title,
           artist: song.artist,
-          artUri: coverFile.uri,
+          artUri: coverUri,
         ),
       );
     }

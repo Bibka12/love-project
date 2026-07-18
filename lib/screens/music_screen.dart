@@ -32,38 +32,37 @@ class MusicPlayerController {
   }
 
   void _startEndWatcher() {
-    _endCheckTimer ??= Timer.periodic(
-      const Duration(milliseconds: 250),
-      (_) async {
-        if (_handlingCompletion || !player.playing) return;
-        if (player.loopMode != LoopMode.off) return;
+    _endCheckTimer ??= Timer.periodic(const Duration(milliseconds: 250), (
+      _,
+    ) async {
+      if (_handlingCompletion || !player.playing) return;
+      if (player.loopMode != LoopMode.off) return;
 
-        final duration = player.duration;
-        if (duration == null || duration == Duration.zero) return;
+      final duration = player.duration;
+      if (duration == null || duration == Duration.zero) return;
 
-        final remaining = duration - player.position;
+      final remaining = duration - player.position;
 
-        // Этот контроль работает даже после ручной перемотки почти в конец.
-        if (remaining > const Duration(milliseconds: 450)) return;
+      // Этот контроль работает даже после ручной перемотки почти в конец.
+      if (remaining > const Duration(milliseconds: 450)) return;
 
-        if (!player.hasNext) return;
+      if (!player.hasNext) return;
 
-        _handlingCompletion = true;
+      _handlingCompletion = true;
 
-        try {
-          await musicAudioHandler.skipToNext();
-          await musicAudioHandler.play();
+      try {
+        await musicAudioHandler.skipToNext();
+        await musicAudioHandler.play();
 
-          // Даём плееру переключить индекс и обновить длительность.
-          await Future<void>.delayed(const Duration(milliseconds: 500));
-        } catch (_) {
-          // При кратковременном состоянии загрузки следующая проверка
-          // снова попробует переключить песню.
-        } finally {
-          _handlingCompletion = false;
-        }
-      },
-    );
+        // Даём плееру переключить индекс и обновить длительность.
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      } catch (_) {
+        // При кратковременном состоянии загрузки следующая проверка
+        // снова попробует переключить песню.
+      } finally {
+        _handlingCompletion = false;
+      }
+    });
   }
 
   Future<void> playSong(int index) async {
