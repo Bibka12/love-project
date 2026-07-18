@@ -1,49 +1,255 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
-  -->
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
+
   <meta
-  name="viewport"
-  content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+  >
+
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
 
-  <!-- iOS meta tags & icons -->
+  <meta
+    name="description"
+    content="Специальное приложение для Нурсауле ❤️"
+  >
+
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="N❤️B">
-  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
 
-  <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
+  <meta
+    name="apple-mobile-web-app-status-bar-style"
+    content="black-translucent"
+  >
+
+  <meta
+    name="apple-mobile-web-app-title"
+    content="N❤️B"
+  >
+
+  <meta
+    name="theme-color"
+    content="#05070D"
+  >
+
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <link rel="icon" type="image/png" href="favicon.png">
 
   <title>N❤️B</title>
-  <link rel="manifest" href="manifest.json">
-</head>
-<body>
-  <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
 
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
-  -->
+  <link rel="manifest" href="manifest.json">
+
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #05070d;
+    }
+
+    body {
+      font-family:
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+    }
+
+    #flutter-loading {
+      position: fixed;
+      inset: 0;
+      z-index: 999999;
+
+      display: flex;
+      align-items: center;
+      justify-content: center;
+
+      width: 100%;
+      min-height: 100dvh;
+
+      background:
+        radial-gradient(
+          circle at 50% 38%,
+          rgba(157, 46, 255, 0.18),
+          transparent 38%
+        ),
+        radial-gradient(
+          circle at 20% 90%,
+          rgba(255, 46, 120, 0.13),
+          transparent 42%
+        ),
+        linear-gradient(
+          180deg,
+          #05070d 0%,
+          #15101e 55%,
+          #2a1730 100%
+        );
+
+      transition:
+        opacity 350ms ease,
+        visibility 350ms ease;
+    }
+
+    #flutter-loading.hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .loading-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+
+      width: min(88vw, 390px);
+      padding: 24px;
+      text-align: center;
+    }
+
+    .loading-logo {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+
+      width: clamp(104px, 30vw, 132px);
+      height: clamp(104px, 30vw, 132px);
+
+      border: 1px solid rgba(255, 255, 255, 0.13);
+      border-radius: 50%;
+
+      background:
+        linear-gradient(
+          135deg,
+          rgba(255, 46, 120, 0.95),
+          rgba(157, 46, 255, 0.95)
+        );
+
+      box-shadow:
+        0 0 32px rgba(255, 46, 120, 0.28),
+        0 0 70px rgba(157, 46, 255, 0.18);
+
+      animation: logoPulse 1.8s ease-in-out infinite;
+    }
+
+    .loading-logo-text {
+      color: white;
+      font-size: clamp(25px, 7vw, 32px);
+      font-weight: 800;
+      letter-spacing: 4px;
+    }
+
+    .loading-title {
+      margin-top: 25px;
+
+      color: white;
+      font-size: clamp(25px, 7vw, 31px);
+      font-weight: 750;
+      letter-spacing: 3px;
+    }
+
+    .loading-subtitle {
+      margin-top: 7px;
+
+      color: rgba(255, 255, 255, 0.58);
+      font-size: clamp(13px, 3.8vw, 15px);
+    }
+
+    .loading-dots {
+      display: flex;
+      gap: 8px;
+      margin-top: 31px;
+    }
+
+    .loading-dot {
+      width: 8px;
+      height: 8px;
+
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.35);
+
+      animation: dotPulse 1.25s ease-in-out infinite;
+    }
+
+    .loading-dot:nth-child(2) {
+      animation-delay: 150ms;
+    }
+
+    .loading-dot:nth-child(3) {
+      animation-delay: 300ms;
+    }
+
+    @keyframes logoPulse {
+      0%,
+      100% {
+        transform: scale(1);
+      }
+
+      50% {
+        transform: scale(1.055);
+      }
+    }
+
+    @keyframes dotPulse {
+      0%,
+      100% {
+        opacity: 0.3;
+        transform: translateY(0);
+      }
+
+      50% {
+        opacity: 1;
+        transform: translateY(-5px);
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div id="flutter-loading">
+    <div class="loading-content">
+      <div class="loading-logo">
+        <div class="loading-logo-text">N♥B</div>
+      </div>
+
+      <div class="loading-title">N♥B</div>
+
+      <div class="loading-subtitle">
+        For Nursaule
+      </div>
+
+      <div class="loading-dots">
+        <div class="loading-dot"></div>
+        <div class="loading-dot"></div>
+        <div class="loading-dot"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    window.addEventListener('flutter-first-frame', function () {
+      const loading = document.getElementById('flutter-loading');
+
+      if (!loading) return;
+
+      loading.classList.add('hidden');
+
+      setTimeout(function () {
+        loading.remove();
+      }, 450);
+    });
+  </script>
+
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
