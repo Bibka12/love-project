@@ -631,7 +631,12 @@ class _DateScreenState extends State<DateScreen> {
                               ),
                             );
                           },
-                      child: buildCurrentStep(),
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 520),
+                          child: buildCurrentStep(),
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -691,10 +696,13 @@ class _DateScreenState extends State<DateScreen> {
   }
 
   Widget buildTopBar() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 20, 5),
-      child: Row(
-        children: [
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 6, 20, 4),
+          child: Row(
+            children: [
           IconButton(
             onPressed: () async {
               await lightVibration();
@@ -724,8 +732,10 @@ class _DateScreenState extends State<DateScreen> {
               ),
             ),
           ),
-          const SizedBox(width: 48),
-        ],
+              const SizedBox(width: 48),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -752,13 +762,13 @@ class _DateScreenState extends State<DateScreen> {
   Widget buildIntroStep({required Key key}) {
     return SingleChildScrollView(
       key: key,
-      padding: const EdgeInsets.fromLTRB(24, 25, 24, 30),
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
       child: Column(
         children: [
-          const SizedBox(height: 25),
+          const SizedBox(height: 8),
           Container(
-            width: 145,
-            height: 145,
+            width: 116,
+            height: 116,
             alignment: Alignment.center,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
@@ -775,15 +785,15 @@ class _DateScreenState extends State<DateScreen> {
                 ),
               ],
             ),
-            child: const Text('💌', style: TextStyle(fontSize: 65)),
+            child: const Text('💌', style: TextStyle(fontSize: 52)),
           ),
-          const SizedBox(height: 42),
+          const SizedBox(height: 24),
           Text(
             'Жаааным, соскучилась по мне?',
             textAlign: TextAlign.center,
             style: GoogleFonts.poppins(
               color: Colors.white,
-              fontSize: 29,
+              fontSize: 24,
               fontWeight: FontWeight.bold,
               height: 1.25,
             ),
@@ -798,7 +808,7 @@ class _DateScreenState extends State<DateScreen> {
               height: 1.6,
             ),
           ),
-          const SizedBox(height: 48),
+          const SizedBox(height: 28),
           buildMainButton(
             title: 'Конечно ❤️',
             onTap: () async {
@@ -825,7 +835,7 @@ class _DateScreenState extends State<DateScreen> {
   Widget buildDateStep({required Key key}) {
     return SingleChildScrollView(
       key: key,
-      padding: const EdgeInsets.fromLTRB(22, 20, 22, 35),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 26),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -835,7 +845,7 @@ class _DateScreenState extends State<DateScreen> {
             'Когда хочешь встретиться?',
             style: GoogleFonts.poppins(
               color: Colors.white,
-              fontSize: 27,
+              fontSize: 24,
               fontWeight: FontWeight.bold,
               height: 1.25,
             ),
@@ -845,7 +855,7 @@ class _DateScreenState extends State<DateScreen> {
             'Выбери удобную дату и время',
             style: GoogleFonts.poppins(color: Colors.white54, fontSize: 14),
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 22),
           buildPickerCard(
             icon: Icons.calendar_month_rounded,
             title: 'Дата',
@@ -865,7 +875,7 @@ class _DateScreenState extends State<DateScreen> {
             onTap: selectTime,
             colors: const [Color(0xff172554), Color(0xff581C87)],
           ),
-          const SizedBox(height: 38),
+          const SizedBox(height: 26),
           buildMainButton(
             title: 'Продолжить',
             onTap: () async {
@@ -895,7 +905,7 @@ class _DateScreenState extends State<DateScreen> {
     return SingleChildScrollView(
       key: key,
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      padding: const EdgeInsets.fromLTRB(22, 20, 22, 40),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -905,7 +915,7 @@ class _DateScreenState extends State<DateScreen> {
             'Чем займёмся?',
             style: GoogleFonts.poppins(
               color: Colors.white,
-              fontSize: 27,
+              fontSize: 24,
               fontWeight: FontWeight.bold,
             ),
           ),
@@ -915,17 +925,21 @@ class _DateScreenState extends State<DateScreen> {
             style: GoogleFonts.poppins(color: Colors.white54, fontSize: 14),
           ),
           const SizedBox(height: 26),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: activities.length,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 13,
-              mainAxisSpacing: 13,
-              childAspectRatio: 1.65,
-            ),
-            itemBuilder: (context, index) {
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final bool veryNarrow = constraints.maxWidth < 350;
+
+              return GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: activities.length,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 11,
+                  mainAxisSpacing: 11,
+                  childAspectRatio: veryNarrow ? 1.45 : 1.70,
+                ),
+                itemBuilder: (context, index) {
               final Map<String, String> activity = activities[index];
 
               final String title = activity['title']!;
@@ -1001,9 +1015,11 @@ class _DateScreenState extends State<DateScreen> {
                   ),
                 ),
               );
+                },
+              );
             },
           ),
-          const SizedBox(height: 25),
+          const SizedBox(height: 20),
           Text(
             'Своя идея',
             style: GoogleFonts.poppins(
@@ -1070,13 +1086,13 @@ class _DateScreenState extends State<DateScreen> {
   Widget buildSuccessStep({required Key key}) {
     return SingleChildScrollView(
       key: key,
-      padding: const EdgeInsets.fromLTRB(24, 45, 24, 35),
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
       child: Column(
         children: [
-          const SizedBox(height: 20),
+          const SizedBox(height: 6),
           Container(
-            width: 145,
-            height: 145,
+            width: 108,
+            height: 108,
             alignment: Alignment.center,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
@@ -1090,15 +1106,15 @@ class _DateScreenState extends State<DateScreen> {
                 ),
               ],
             ),
-            child: const Text('🥳', style: TextStyle(fontSize: 67)),
+            child: const Text('🥳', style: TextStyle(fontSize: 52)),
           ),
-          const SizedBox(height: 40),
+          const SizedBox(height: 22),
           Text(
             'Приглашение отправлено!',
             textAlign: TextAlign.center,
             style: GoogleFonts.poppins(
               color: Colors.white,
-              fontSize: 28,
+              fontSize: 23,
               fontWeight: FontWeight.bold,
               height: 1.25,
             ),
@@ -1174,7 +1190,7 @@ class _DateScreenState extends State<DateScreen> {
       onTap: onTap,
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.all(19),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
@@ -1194,8 +1210,8 @@ class _DateScreenState extends State<DateScreen> {
         child: Row(
           children: [
             Container(
-              width: 55,
-              height: 55,
+              width: 48,
+              height: 48,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: Colors.white.withValues(alpha: 0.13),
@@ -1315,7 +1331,7 @@ class _DateScreenState extends State<DateScreen> {
         opacity: onTap == null ? 0.65 : 1,
         child: Container(
           width: double.infinity,
-          height: 58,
+          height: 54,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(22),
