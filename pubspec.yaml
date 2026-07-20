@@ -48,6 +48,6 @@ flutter_launcher_icons:
 
   web:
     generate: true
-    image_path: "assets/nursaule.png"
-    background_color: "#F8C3D8"
-    theme_color: "#F8C3D8"
+    image_path: "assets/web_icon.png"
+    background_color: "#02040D"
+    theme_color: "#02040D"
