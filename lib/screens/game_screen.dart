@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -25,13 +27,13 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   final AudioPlayer audioPlayer = AudioPlayer();
 
-  late AnimationController questionController;
-  late Animation<double> questionFadeAnimation;
-  late Animation<Offset> questionSlideAnimation;
+  late final AnimationController questionController;
+  late final Animation<double> questionFadeAnimation;
+  late final Animation<Offset> questionSlideAnimation;
 
-  late AnimationController heartController;
-  late Animation<double> heartScaleAnimation;
-  late Animation<Offset> heartMoveAnimation;
+  late final AnimationController heartController;
+  late final Animation<double> heartScaleAnimation;
+  late final Animation<Offset> heartMoveAnimation;
 
   List<Question> get currentQuestions {
     return currentStage == 1 ? stage1Questions : stage2Questions;
@@ -86,6 +88,42 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     super.dispose();
   }
 
+  // Небольшой отклик обычной кнопки.
+  void vibrateTap() {
+    try {
+      unawaited(Vibration.vibrate(duration: 25));
+    } catch (error) {
+      debugPrint('Ошибка лёгкой вибрации: $error');
+    }
+  }
+
+  // Живая, приятная вибрация правильного ответа.
+  void vibrateCorrectAnswer() {
+    try {
+      unawaited(Vibration.vibrate(pattern: const [0, 45, 45, 85]));
+    } catch (error) {
+      debugPrint('Ошибка вибрации правильного ответа: $error');
+    }
+  }
+
+  // Более заметная вибрация неправильного ответа.
+  void vibrateWrongAnswer() {
+    try {
+      unawaited(Vibration.vibrate(pattern: const [0, 130, 70, 130, 70, 190]));
+    } catch (error) {
+      debugPrint('Ошибка вибрации неправильного ответа: $error');
+    }
+  }
+
+  // Праздничная вибрация после прохождения этапа.
+  void vibrateStageCompleted() {
+    try {
+      unawaited(Vibration.vibrate(pattern: const [0, 60, 50, 100, 50, 160]));
+    } catch (error) {
+      debugPrint('Ошибка победной вибрации: $error');
+    }
+  }
+
   Future<void> playCorrectSound() async {
     try {
       await audioPlayer.stop();
@@ -104,22 +142,19 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     }
   }
 
-  Future<void> vibrateWrongAnswer() async {
-    try {
-      final bool hasVibrator = await Vibration.hasVibrator();
-
-      if (hasVibrator) {
-        await Vibration.vibrate(duration: 250);
-      }
-    } catch (error) {
-      debugPrint('Ошибка вибрации: $error');
-    }
-  }
-
   Future<void> chooseAnswer(int index) async {
     if (answered) return;
 
     final bool isCorrect = index == question.correct;
+
+    // Вибрацию вызываем сразу после настоящего нажатия.
+    // Не ставим перед ней await и долгие операции.
+    if (isCorrect) {
+      vibrateCorrectAnswer();
+      unawaited(playCorrectSound());
+    } else {
+      vibrateWrongAnswer();
+    }
 
     setState(() {
       answered = true;
@@ -133,22 +168,18 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     });
 
     if (isCorrect) {
-      playCorrectSound();
-
       heartController.forward(from: 0);
 
-      Future.delayed(const Duration(milliseconds: 750), () {
+      Future<void>.delayed(const Duration(milliseconds: 750), () {
         if (!mounted) return;
 
         setState(() {
           showHeartAnimation = false;
         });
       });
-    } else {
-      vibrateWrongAnswer();
     }
 
-    await Future.delayed(const Duration(milliseconds: 1100));
+    await Future<void>.delayed(const Duration(milliseconds: 1100));
 
     if (!mounted) return;
 
@@ -163,14 +194,15 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         selectedAnswer = null;
       });
 
-      questionController.forward();
+      await questionController.forward();
     } else {
       showStageResult();
     }
   }
 
   void showStageResult() {
-    playWinSound();
+    vibrateStageCompleted();
+    unawaited(playWinSound());
 
     showDialog<void>(
       context: context,
@@ -202,7 +234,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
               mainAxisSize: MainAxisSize.min,
               children: [
                 TweenAnimationBuilder<double>(
-                  tween: Tween(begin: 0.5, end: 1),
+                  tween: Tween<double>(begin: 0.5, end: 1),
                   duration: const Duration(milliseconds: 700),
                   curve: Curves.elasticOut,
                   builder: (context, value, child) {
@@ -243,8 +275,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
                 Text(
                   isFirstStage
-                      ? 'Молодец! Ты прошла первое испытание ❤️\n\nГотова ко второму этапу?'
-                      : 'Ты вообще умничка ❤️\n\nТеперь тебя ждёт финальный вопрос.',
+                      ? 'Молодец! Ты прошла первое испытание ❤️\n\n'
+                            'Готова ко второму этапу?'
+                      : 'Ты вообще умничка ❤️\n\n'
+                            'Теперь тебя ждёт финальный вопрос.',
                   textAlign: TextAlign.center,
                   style: GoogleFonts.poppins(
                     color: Colors.white70,
@@ -267,6 +301,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                       ),
                     ),
                     onPressed: () {
+                      vibrateTap();
+
                       Navigator.pop(dialogContext);
 
                       if (isFirstStage) {
@@ -301,6 +337,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       stageHearts = 0;
       answered = false;
       selectedAnswer = null;
+      showHeartAnimation = false;
     });
 
     questionController.forward();
@@ -309,7 +346,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   void openFinalQuestion() {
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (context) => const FinalQuestionScreen()),
+      MaterialPageRoute<void>(
+        builder: (context) => const FinalQuestionScreen(),
+      ),
     );
   }
 
@@ -375,7 +414,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   spreadRadius: 1,
                 ),
               ]
-            : [],
+            : const [],
       ),
       child: Material(
         color: Colors.transparent,
@@ -383,7 +422,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           onTap: answered
               ? null
               : () {
-                  chooseAnswer(index);
+                  unawaited(chooseAnswer(index));
                 },
           borderRadius: BorderRadius.circular(22),
           child: Padding(
@@ -470,6 +509,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                     children: [
                       IconButton(
                         onPressed: () {
+                          vibrateTap();
                           Navigator.pop(context);
                         },
                         icon: const Icon(
@@ -502,7 +542,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(20),
                           child: TweenAnimationBuilder<double>(
-                            tween: Tween(begin: 0, end: progress),
+                            tween: Tween<double>(begin: 0, end: progress),
                             duration: const Duration(milliseconds: 450),
                             builder: (context, value, child) {
                               return LinearProgressIndicator(
@@ -528,7 +568,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                         },
                         child: Text(
                           '❤️ $stageHearts',
-                          key: ValueKey(stageHearts),
+                          key: ValueKey<int>(stageHearts),
                           style: GoogleFonts.poppins(
                             color: Colors.white,
                             fontSize: 19,
@@ -542,7 +582,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   const SizedBox(height: 14),
 
                   Text(
-                    'Вопрос ${currentQuestion + 1} из ${currentQuestions.length}',
+                    'Вопрос ${currentQuestion + 1} '
+                    'из ${currentQuestions.length}',
                     style: GoogleFonts.poppins(
                       color: Colors.white60,
                       fontSize: 15,
@@ -594,7 +635,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
                               const SizedBox(height: 30),
 
-                              ...List.generate(
+                              ...List<Widget>.generate(
                                 question.answers.length,
                                 buildAnswerButton,
                               ),
@@ -608,7 +649,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                                       selectedAnswer == question.correct
                                           ? 'Правильно ❤️'
                                           : 'Не угадала, но ничего 😄',
-                                      key: ValueKey(selectedAnswer),
+                                      key: ValueKey<int?>(selectedAnswer),
                                       style: GoogleFonts.poppins(
                                         color:
                                             selectedAnswer == question.correct
@@ -640,14 +681,19 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           ),
 
           if (showHeartAnimation)
-            Center(
-              child: SlideTransition(
-                position: heartMoveAnimation,
-                child: ScaleTransition(
-                  scale: heartScaleAnimation,
-                  child: const Text(
-                    '+1 ❤️',
-                    style: TextStyle(fontSize: 40, fontWeight: FontWeight.bold),
+            IgnorePointer(
+              child: Center(
+                child: SlideTransition(
+                  position: heartMoveAnimation,
+                  child: ScaleTransition(
+                    scale: heartScaleAnimation,
+                    child: const Text(
+                      '+1 ❤️',
+                      style: TextStyle(
+                        fontSize: 40,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                 ),
               ),
