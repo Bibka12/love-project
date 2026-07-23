@@ -70,5 +70,13 @@
 	<array>
     	<string>audio</string>
 	</array>
+	<key>NSPhotoLibraryUsageDescription</key>
+<string>Приложению нужен доступ к фотографиям для отправки изображений в чат.</string>
+<key>NSCameraUsageDescription</key>
+<string>Приложению нужен доступ к камере для отправки фотографий в чат.</string>
+
+<key>NSMicrophoneUsageDescription</key>
+<string>Приложению нужен доступ к микрофону для записи голосовых сообщений.</string>
+
 </dict>
 </plist>

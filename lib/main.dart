@@ -1,14 +1,25 @@
 import 'package:audio_service/audio_service.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
+import 'firebase_options.dart';
 import 'music_audio_handler.dart';
 import 'screens/loading_screen.dart';
+import 'services/presence_service.dart';
 
 late final MusicAudioHandler musicAudioHandler;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Подключаем Firebase для текущей платформы: Android или Web.
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // Запускаем отслеживание статуса:
+  // онлайн / офлайн / последнее посещение.
+  await PresenceService.instance.initialize();
+
+  // Запускаем музыкальный сервис.
   musicAudioHandler = await AudioService.init(
     builder: MusicAudioHandler.new,
     config: const AudioServiceConfig(
@@ -36,7 +47,12 @@ class LoveApp extends StatelessWidget {
       title: 'For Nursaule',
       theme: ThemeData(
         brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xff05070D),
+        scaffoldBackgroundColor: const Color(0xFF05070D),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFFFF4D8D),
+          brightness: Brightness.dark,
+        ),
+        useMaterial3: true,
       ),
       home: const LoadingScreen(),
     );

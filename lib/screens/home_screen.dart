@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../date_screen.dart';
+import 'chat/chats_screen.dart';
 import 'game_screen.dart';
 import 'stars/stars_screen.dart';
 import 'music_screen.dart';
+import 'profile/profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -101,13 +103,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         return buildHomePage();
 
       case 1:
-        return buildChatPage();
+        return const ChatsScreen();
 
       case 2:
         return const MusicScreen();
 
       case 3:
-        return buildProfilePage();
+        return const ProfileScreen();
 
       default:
         return buildHomePage();
@@ -658,168 +660,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     ),
                   ],
                 ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // =====================================================
-  // ЧАТ
-  // =====================================================
-
-  Widget buildChatPage() {
-    return Container(
-      width: double.infinity,
-      height: double.infinity,
-
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-
-          colors: [Color(0xff05070D), Color(0xff1E1633)],
-        ),
-      ),
-
-      child: SafeArea(
-        bottom: false,
-
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-
-            children: [
-              Container(
-                width: 95,
-                height: 95,
-
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-
-                  color: Colors.white.withValues(alpha: 0.05),
-
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.08),
-                  ),
-
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xff9D2EFF).withValues(alpha: 0.18),
-
-                      blurRadius: 30,
-                    ),
-                  ],
-                ),
-
-                child: const Icon(
-                  Icons.chat_bubble_outline_rounded,
-                  color: Colors.white54,
-                  size: 48,
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              Text(
-                'Чат',
-
-                style: GoogleFonts.poppins(
-                  color: Colors.white,
-                  fontSize: 26,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              Text(
-                'Здесь позже появится чат ❤️',
-
-                style: GoogleFonts.poppins(color: Colors.white54, fontSize: 15),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // =====================================================
-  // ПРОФИЛЬ
-  // =====================================================
-
-  Widget buildProfilePage() {
-    return Container(
-      width: double.infinity,
-      height: double.infinity,
-
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-
-          colors: [Color(0xff05070D), Color(0xff301934)],
-        ),
-      ),
-
-      child: SafeArea(
-        bottom: false,
-
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-
-            children: [
-              Container(
-                width: 95,
-                height: 95,
-
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-
-                  color: Colors.white.withValues(alpha: 0.05),
-
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.08),
-                  ),
-
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xffFF2E78).withValues(alpha: 0.18),
-
-                      blurRadius: 30,
-                    ),
-                  ],
-                ),
-
-                child: const Icon(
-                  Icons.person_outline_rounded,
-                  color: Colors.white54,
-                  size: 52,
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              Text(
-                'Профиль',
-
-                style: GoogleFonts.poppins(
-                  color: Colors.white,
-                  fontSize: 26,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              Text(
-                'Этот раздел добавим позже ✨',
-
-                style: GoogleFonts.poppins(color: Colors.white54, fontSize: 15),
               ),
             ],
           ),
