@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
@@ -242,10 +243,18 @@ class _ChatScreenState extends State<ChatScreen> {
 
       _setTyping(false);
 
-      final imageUrl = await CloudinaryService.uploadChatImage(
-        imageFile: File(pickedImage.path),
-        userId: currentUser.uid,
-      );
+      final imageUrl = kIsWeb
+          ? await CloudinaryService.uploadChatImageBytes(
+              imageBytes: await pickedImage.readAsBytes(),
+              fileName: pickedImage.name.trim().isEmpty
+                  ? 'chat_image_${DateTime.now().millisecondsSinceEpoch}.jpg'
+                  : pickedImage.name,
+              userId: currentUser.uid,
+            )
+          : await CloudinaryService.uploadChatImage(
+              imageFile: File(pickedImage.path),
+              userId: currentUser.uid,
+            );
 
       await ChatService.sendImage(
         currentUid: currentUser.uid,
