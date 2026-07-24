@@ -81,6 +81,24 @@ class CloudinaryService {
     );
   }
 
+  /// Загрузка голосового сообщения из байтов.
+  ///
+  /// Работает и в браузере, и на мобильных устройствах.
+  static Future<String> uploadChatVoiceBytes({
+    required Uint8List audioBytes,
+    required String fileName,
+    required String userId,
+  }) {
+    return _uploadBytes(
+      bytes: audioBytes,
+      fileName: fileName,
+      resourceType: 'video',
+      tags: 'chat_voice,user_$userId',
+      emptyFileMessage: 'Записанное голосовое сообщение пустое.',
+      missingUrlMessage: 'Cloudinary не вернул ссылку на голосовое сообщение.',
+    );
+  }
+
   static Future<String> _uploadBytes({
     required Uint8List bytes,
     required String fileName,

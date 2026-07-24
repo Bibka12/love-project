@@ -348,13 +348,14 @@ class _ChatScreenState extends State<ChatScreen> {
         throw StateError('Сначала войди в аккаунт.');
       }
 
-      final audioFile = await _voiceRecorder.stop();
-      if (audioFile == null) {
+      final recordedVoice = await _voiceRecorder.stop();
+      if (recordedVoice == null || recordedVoice.bytes.isEmpty) {
         throw StateError('Запись не сохранилась. Попробуй ещё раз.');
       }
 
-      final voiceUrl = await CloudinaryService.uploadChatVoice(
-        audioFile: audioFile,
+      final voiceUrl = await CloudinaryService.uploadChatVoiceBytes(
+        audioBytes: recordedVoice.bytes,
+        fileName: recordedVoice.fileName,
         userId: currentUser.uid,
       );
 
@@ -364,10 +365,6 @@ class _ChatScreenState extends State<ChatScreen> {
         voiceUrl: voiceUrl,
         durationSeconds: durationSeconds,
       );
-
-      if (await audioFile.exists()) {
-        await audioFile.delete();
-      }
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
