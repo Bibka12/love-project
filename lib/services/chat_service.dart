@@ -6,24 +6,50 @@ class ChatMessage {
     required this.senderUid,
     required this.receiverUid,
     required this.text,
+    required this.imageUrl,
+    required this.voiceUrl,
+    required this.durationSeconds,
     required this.type,
     required this.createdAt,
     required this.isRead,
     required this.readAt,
+    required this.replyToId,
+    required this.replySenderUid,
+    required this.replySenderName,
+    required this.replyType,
+    required this.replyPreview,
   });
 
   final String id;
   final String senderUid;
   final String receiverUid;
   final String text;
+  final String imageUrl;
+  final String voiceUrl;
+  final int durationSeconds;
   final String type;
   final DateTime? createdAt;
   final bool isRead;
   final DateTime? readAt;
+  final String replyToId;
+  final String replySenderUid;
+  final String replySenderName;
+  final String replyType;
+  final String replyPreview;
 
   bool isMine(String currentUid) {
     return senderUid == currentUid;
   }
+
+  bool get isImage {
+    return type == 'image' && imageUrl.trim().isNotEmpty;
+  }
+
+  bool get isVoice {
+    return type == 'voice' && voiceUrl.trim().isNotEmpty;
+  }
+
+  bool get hasReply => replyToId.trim().isNotEmpty;
 
   factory ChatMessage.fromDocument(
     DocumentSnapshot<Map<String, dynamic>> document,
@@ -37,12 +63,45 @@ class ChatMessage {
       senderUid: data['senderUid']?.toString() ?? '',
       receiverUid: data['receiverUid']?.toString() ?? '',
       text: data['text']?.toString() ?? '',
+      imageUrl: data['imageUrl']?.toString() ?? '',
+      voiceUrl: data['voiceUrl']?.toString() ?? '',
+      durationSeconds: (data['durationSeconds'] as num?)?.toInt() ?? 0,
       type: data['type']?.toString() ?? 'text',
-      createdAt:
-          createdAtValue is Timestamp ? createdAtValue.toDate() : null,
+      createdAt: createdAtValue is Timestamp ? createdAtValue.toDate() : null,
       isRead: data['isRead'] == true,
       readAt: readAtValue is Timestamp ? readAtValue.toDate() : null,
+      replyToId: data['replyToId']?.toString() ?? '',
+      replySenderUid: data['replySenderUid']?.toString() ?? '',
+      replySenderName: data['replySenderName']?.toString() ?? '',
+      replyType: data['replyType']?.toString() ?? '',
+      replyPreview: data['replyPreview']?.toString() ?? '',
     );
+  }
+}
+
+class ChatReply {
+  const ChatReply({
+    required this.messageId,
+    required this.senderUid,
+    required this.senderName,
+    required this.type,
+    required this.preview,
+  });
+
+  final String messageId;
+  final String senderUid;
+  final String senderName;
+  final String type;
+  final String preview;
+
+  Map<String, dynamic> toMap() {
+    return <String, dynamic>{
+      'replyToId': messageId,
+      'replySenderUid': senderUid,
+      'replySenderName': senderName,
+      'replyType': type,
+      'replyPreview': preview,
+    };
   }
 }
 
@@ -101,7 +160,6 @@ class ChatService {
 
   static String chatId(String firstUid, String secondUid) {
     final ids = <String>[firstUid.trim(), secondUid.trim()]..sort();
-
     return '${ids[0]}_${ids[1]}';
   }
 
@@ -130,8 +188,15 @@ class ChatService {
         .snapshots()
         .map((snapshot) {
           return snapshot.docs.map(ChatMessage.fromDocument).where((message) {
-            return message.senderUid.isNotEmpty &&
-                message.text.trim().isNotEmpty;
+            if (message.senderUid.isEmpty) {
+              return false;
+            }
+
+            if (message.isImage || message.isVoice) {
+              return true;
+            }
+
+            return message.type == 'text' && message.text.trim().isNotEmpty;
           }).toList();
         });
   }
@@ -182,10 +247,94 @@ class ChatService {
     required String currentUid,
     required String otherUid,
     required String text,
+    ChatReply? replyTo,
+  }) async {
+    final cleanText = text.trim();
+
+    if (cleanText.isEmpty) {
+      return;
+    }
+
+    await _sendMessageData(
+      currentUid: currentUid,
+      otherUid: otherUid,
+      lastMessage: cleanText,
+      messageData: <String, dynamic>{
+        'text': cleanText,
+        'imageUrl': '',
+        'voiceUrl': '',
+        'durationSeconds': 0,
+        'type': 'text',
+        ...?replyTo?.toMap(),
+      },
+    );
+  }
+
+  static Future<void> sendImage({
+    required String currentUid,
+    required String otherUid,
+    required String imageUrl,
+    ChatReply? replyTo,
+  }) async {
+    final cleanImageUrl = imageUrl.trim();
+
+    if (cleanImageUrl.isEmpty) {
+      throw StateError('Cloudinary не вернул ссылку на фотографию.');
+    }
+
+    await _sendMessageData(
+      currentUid: currentUid,
+      otherUid: otherUid,
+      lastMessage: '📷 Фото',
+      messageData: <String, dynamic>{
+        'text': '',
+        'imageUrl': cleanImageUrl,
+        'voiceUrl': '',
+        'durationSeconds': 0,
+        'type': 'image',
+        ...?replyTo?.toMap(),
+      },
+    );
+  }
+
+  static Future<void> sendVoice({
+    required String currentUid,
+    required String otherUid,
+    required String voiceUrl,
+    required int durationSeconds,
+    ChatReply? replyTo,
+  }) async {
+    final cleanVoiceUrl = voiceUrl.trim();
+
+    if (cleanVoiceUrl.isEmpty) {
+      throw StateError('Cloudinary не вернул ссылку на голосовое сообщение.');
+    }
+
+    final safeDuration = durationSeconds.clamp(1, 3600);
+
+    await _sendMessageData(
+      currentUid: currentUid,
+      otherUid: otherUid,
+      lastMessage: '🎤 Голосовое сообщение',
+      messageData: <String, dynamic>{
+        'text': '',
+        'imageUrl': '',
+        'voiceUrl': cleanVoiceUrl,
+        'durationSeconds': safeDuration,
+        'type': 'voice',
+        ...?replyTo?.toMap(),
+      },
+    );
+  }
+
+  static Future<void> _sendMessageData({
+    required String currentUid,
+    required String otherUid,
+    required String lastMessage,
+    required Map<String, dynamic> messageData,
   }) async {
     final cleanCurrentUid = currentUid.trim();
     final cleanOtherUid = otherUid.trim();
-    final cleanText = text.trim();
 
     if (cleanCurrentUid.isEmpty) {
       throw StateError('Не удалось определить отправителя.');
@@ -193,10 +342,6 @@ class ChatService {
 
     if (cleanOtherUid.isEmpty) {
       throw StateError('Не удалось определить получателя.');
-    }
-
-    if (cleanText.isEmpty) {
-      return;
     }
 
     if (cleanCurrentUid == cleanOtherUid) {
@@ -211,7 +356,7 @@ class ChatService {
 
     final chatData = <String, dynamic>{
       'participants': participants,
-      'lastMessage': cleanText,
+      'lastMessage': lastMessage,
       'lastSenderUid': cleanCurrentUid,
       'updatedAt': FieldValue.serverTimestamp(),
     };
@@ -225,8 +370,7 @@ class ChatService {
     batch.set(messageReference, <String, dynamic>{
       'senderUid': cleanCurrentUid,
       'receiverUid': cleanOtherUid,
-      'text': cleanText,
-      'type': 'text',
+      ...messageData,
       'createdAt': FieldValue.serverTimestamp(),
       'isRead': false,
       'readAt': null,
@@ -277,5 +421,68 @@ class ChatService {
 
       await batch.commit();
     }
+  }
+
+  static Stream<bool> watchTyping({
+    required String currentUid,
+    required String otherUid,
+  }) {
+    final cleanCurrentUid = currentUid.trim();
+    final cleanOtherUid = otherUid.trim();
+
+    if (cleanCurrentUid.isEmpty || cleanOtherUid.isEmpty) {
+      return Stream<bool>.value(false);
+    }
+
+    return _chatRef(cleanCurrentUid, cleanOtherUid)
+        .collection('typing')
+        .doc(cleanOtherUid)
+        .snapshots()
+        .map((snapshot) {
+          final data = snapshot.data();
+
+          if (data == null || data['isTyping'] != true) {
+            return false;
+          }
+
+          final updatedAt = data['updatedAt'];
+
+          if (updatedAt is! Timestamp) {
+            return false;
+          }
+
+          final age = DateTime.now().difference(updatedAt.toDate());
+          return age < const Duration(seconds: 5);
+        });
+  }
+
+  static Future<void> setTyping({
+    required String currentUid,
+    required String otherUid,
+    required bool isTyping,
+  }) async {
+    final cleanCurrentUid = currentUid.trim();
+    final cleanOtherUid = otherUid.trim();
+
+    if (cleanCurrentUid.isEmpty || cleanOtherUid.isEmpty) {
+      return;
+    }
+
+    if (cleanCurrentUid == cleanOtherUid) {
+      return;
+    }
+
+    final typingReference = _chatRef(cleanCurrentUid, cleanOtherUid)
+        .collection('typing')
+        .doc(cleanCurrentUid);
+
+    await typingReference.set(
+      <String, dynamic>{
+        'uid': cleanCurrentUid,
+        'isTyping': isTyping,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
   }
 }
