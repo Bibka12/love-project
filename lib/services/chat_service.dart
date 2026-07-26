@@ -18,6 +18,8 @@ class ChatMessage {
     required this.replySenderName,
     required this.replyType,
     required this.replyPreview,
+    required this.reactions,
+    required this.deletedFor,
   });
 
   final String id;
@@ -36,6 +38,8 @@ class ChatMessage {
   final String replySenderName;
   final String replyType;
   final String replyPreview;
+  final Map<String, String> reactions;
+  final List<String> deletedFor;
 
   bool isMine(String currentUid) {
     return senderUid == currentUid;
@@ -51,12 +55,18 @@ class ChatMessage {
 
   bool get hasReply => replyToId.trim().isNotEmpty;
 
+  String reactionFor(String uid) => reactions[uid] ?? '';
+
   factory ChatMessage.fromDocument(
     DocumentSnapshot<Map<String, dynamic>> document,
   ) {
     final data = document.data() ?? <String, dynamic>{};
     final createdAtValue = data['createdAt'];
     final readAtValue = data['readAt'];
+    final rawReactions =
+        data['reactions'] as Map<String, dynamic>? ?? <String, dynamic>{};
+    final rawDeletedFor =
+        data['deletedFor'] as List<dynamic>? ?? <dynamic>[];
 
     return ChatMessage(
       id: document.id,
@@ -75,6 +85,10 @@ class ChatMessage {
       replySenderName: data['replySenderName']?.toString() ?? '',
       replyType: data['replyType']?.toString() ?? '',
       replyPreview: data['replyPreview']?.toString() ?? '',
+      reactions: rawReactions.map(
+        (key, value) => MapEntry(key, value.toString()),
+      ),
+      deletedFor: rawDeletedFor.map((value) => value.toString()).toList(),
     );
   }
 }
@@ -188,6 +202,10 @@ class ChatService {
         .snapshots()
         .map((snapshot) {
           return snapshot.docs.map(ChatMessage.fromDocument).where((message) {
+            if (message.deletedFor.contains(cleanCurrentUid)) {
+              return false;
+            }
+
             if (message.senderUid.isEmpty) {
               return false;
             }
@@ -421,6 +439,145 @@ class ChatService {
 
       await batch.commit();
     }
+  }
+
+  static Future<void> toggleReaction({
+    required String currentUid,
+    required String otherUid,
+    required String messageId,
+    required String emoji,
+  }) async {
+    final cleanCurrentUid = currentUid.trim();
+    final cleanOtherUid = otherUid.trim();
+    final cleanMessageId = messageId.trim();
+    const allowedReactions = <String>{'❤️', '😂', '😍', '😭', '🔥', '👍'};
+
+    if (cleanCurrentUid.isEmpty ||
+        cleanOtherUid.isEmpty ||
+        cleanMessageId.isEmpty ||
+        !allowedReactions.contains(emoji)) {
+      return;
+    }
+
+    final messageReference = _chatRef(cleanCurrentUid, cleanOtherUid)
+        .collection('messages')
+        .doc(cleanMessageId);
+
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(messageReference);
+      final data = snapshot.data();
+
+      if (data == null) return;
+
+      final rawReactions =
+          data['reactions'] as Map<String, dynamic>? ?? <String, dynamic>{};
+      final currentReaction = rawReactions[cleanCurrentUid]?.toString() ?? '';
+
+      transaction.update(messageReference, <String, dynamic>{
+        'reactions.$cleanCurrentUid': currentReaction == emoji
+            ? FieldValue.delete()
+            : emoji,
+      });
+    });
+  }
+
+  static Future<void> deleteMessageForMe({
+    required String currentUid,
+    required String otherUid,
+    required String messageId,
+  }) async {
+    final cleanCurrentUid = currentUid.trim();
+    final cleanOtherUid = otherUid.trim();
+    final cleanMessageId = messageId.trim();
+
+    if (cleanCurrentUid.isEmpty ||
+        cleanOtherUid.isEmpty ||
+        cleanMessageId.isEmpty) {
+      return;
+    }
+
+    await _chatRef(cleanCurrentUid, cleanOtherUid)
+        .collection('messages')
+        .doc(cleanMessageId)
+        .update(<String, dynamic>{
+          'deletedFor': FieldValue.arrayUnion(<String>[cleanCurrentUid]),
+        });
+  }
+
+  static Future<void> clearChatForMe({
+    required String currentUid,
+    required String otherUid,
+  }) async {
+    final cleanCurrentUid = currentUid.trim();
+    final cleanOtherUid = otherUid.trim();
+
+    if (cleanCurrentUid.isEmpty || cleanOtherUid.isEmpty) {
+      return;
+    }
+
+    final messages = _chatRef(
+      cleanCurrentUid,
+      cleanOtherUid,
+    ).collection('messages');
+    DocumentSnapshot<Map<String, dynamic>>? lastDocument;
+
+    while (true) {
+      Query<Map<String, dynamic>> query = messages
+          .orderBy(FieldPath.documentId)
+          .limit(400);
+
+      if (lastDocument != null) {
+        query = query.startAfterDocument(lastDocument);
+      }
+
+      final snapshot = await query.get();
+      if (snapshot.docs.isEmpty) return;
+
+      final batch = _firestore.batch();
+      var updatesCount = 0;
+
+      for (final document in snapshot.docs) {
+        final rawDeletedFor = document.data()['deletedFor'];
+        final deletedFor = rawDeletedFor is List
+            ? rawDeletedFor.map((value) => value.toString()).toSet()
+            : <String>{};
+
+        if (deletedFor.contains(cleanCurrentUid)) continue;
+
+        batch.update(document.reference, <String, dynamic>{
+          'deletedFor': FieldValue.arrayUnion(<String>[cleanCurrentUid]),
+        });
+        updatesCount++;
+      }
+
+      if (updatesCount > 0) {
+        await batch.commit();
+      }
+
+      lastDocument = snapshot.docs.last;
+      if (snapshot.docs.length < 400) return;
+    }
+  }
+
+  static Future<void> deleteMessageForEveryone({
+    required String currentUid,
+    required String otherUid,
+    required String messageId,
+  }) async {
+    final cleanCurrentUid = currentUid.trim();
+    final cleanOtherUid = otherUid.trim();
+    final cleanMessageId = messageId.trim();
+
+    if (cleanCurrentUid.isEmpty ||
+        cleanOtherUid.isEmpty ||
+        cleanMessageId.isEmpty) {
+      return;
+    }
+
+    await _chatRef(cleanCurrentUid, cleanOtherUid)
+        .collection('messages')
+        .doc(cleanMessageId)
+        .delete();
   }
 
   static Stream<bool> watchTyping({

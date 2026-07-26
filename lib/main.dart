@@ -6,8 +6,11 @@ import 'firebase_options.dart';
 import 'music_audio_handler.dart';
 import 'screens/loading_screen.dart';
 import 'services/presence_service.dart';
+import 'widgets/incoming_call_listener.dart';
 
 late final MusicAudioHandler musicAudioHandler;
+final GlobalKey<NavigatorState> appNavigatorKey =
+    GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -43,6 +46,7 @@ class LoveApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: appNavigatorKey,
       debugShowCheckedModeBanner: false,
       title: 'For Nursaule',
       theme: ThemeData(
@@ -54,6 +58,12 @@ class LoveApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
+      builder: (context, child) {
+        return IncomingCallListener(
+          navigatorKey: appNavigatorKey,
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       home: const LoadingScreen(),
     );
   }

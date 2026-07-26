@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:vibration/vibration.dart';
@@ -14,6 +15,8 @@ import '../../services/friends_service.dart';
 import '../../services/presence_service.dart';
 import '../../services/voice_recorder_service.dart';
 import '../../widgets/voice_message_player.dart';
+import '../call/call_screen.dart';
+import '../../services/call_service.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key, required this.friend});
@@ -27,12 +30,14 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
+  late final Stream<List<ChatMessage>> _messagesStream;
 
   bool _sending = false;
   bool _uploadingImage = false;
   bool _uploadingVoice = false;
   bool _recordingVoice = false;
   bool _hasText = false;
+  bool _clearingChat = false;
   int _recordingSeconds = 0;
   ChatMessage? _replyingTo;
 
@@ -45,11 +50,19 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Timer? _typingTimer;
   bool _typingSent = false;
+  final Set<String> _hiddenOwnReactions = <String>{};
 
   @override
   void initState() {
     super.initState();
 
+    final currentUser = FirebaseAuth.instance.currentUser;
+    _messagesStream = currentUser == null
+        ? Stream<List<ChatMessage>>.value(<ChatMessage>[])
+        : ChatService.watchMessages(
+            currentUid: currentUser.uid,
+            otherUid: widget.friend.uid,
+          );
     _controller.addListener(_handleTextChanged);
   }
 
@@ -116,6 +129,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final currentUser = FirebaseAuth.instance.currentUser;
     final text = _controller.text.trim();
     final replyTo = _buildReplyPayload(currentUser);
+    final keepKeyboardOpen = _focusNode.hasFocus;
 
     if (currentUser == null || text.isEmpty || _sending) {
       return;
@@ -126,6 +140,13 @@ class _ChatScreenState extends State<ChatScreen> {
     });
 
     _controller.clear();
+    if (keepKeyboardOpen) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _focusNode.requestFocus();
+        }
+      });
+    }
     _setTyping(false);
 
     try {
@@ -225,6 +246,256 @@ class _ChatScreenState extends State<ChatScreen> {
         Vibration.vibrate(duration: 25);
       }
     });
+  }
+
+  Future<void> _toggleReaction(ChatMessage message, String emoji) async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) return;
+    final removing = message.reactionFor(currentUser.uid) == emoji;
+
+    if (removing && mounted) {
+      setState(() {
+        _hiddenOwnReactions.add(message.id);
+      });
+    }
+
+    try {
+      await ChatService.toggleReaction(
+        currentUid: currentUser.uid,
+        otherUid: widget.friend.uid,
+        messageId: message.id,
+        emoji: emoji,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      if (removing) {
+        setState(() {
+          _hiddenOwnReactions.remove(message.id);
+        });
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Не удалось поставить реакцию: $error')),
+      );
+    }
+  }
+
+  Future<void> _showMessageActions(ChatMessage message) async {
+    const reactions = <String>['❤️', '😂', '😍', '😭', '🔥', '👍'];
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(10, 12, 10, 8),
+            decoration: BoxDecoration(
+              color: const Color(0xff20222B),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.07),
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: reactions.map((emoji) {
+                    return InkResponse(
+                      radius: 25,
+                      onTap: () {
+                        Navigator.pop(sheetContext);
+                        _toggleReaction(message, emoji);
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Text(
+                          emoji,
+                          style: const TextStyle(fontSize: 25),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const Divider(color: Colors.white12),
+                ListTile(
+                  leading: const Icon(
+                    Icons.reply_rounded,
+                    color: Color(0xffFF5A9E),
+                  ),
+                  title: const Text(
+                    'Ответить',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _startReply(message);
+                  },
+                ),
+                if (message.type == 'text')
+                  ListTile(
+                    leading: const Icon(
+                      Icons.copy_rounded,
+                      color: Colors.white70,
+                    ),
+                    title: const Text(
+                      'Копировать',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    onTap: () async {
+                      await Clipboard.setData(
+                        ClipboardData(text: message.text),
+                      );
+                      if (sheetContext.mounted) {
+                        Navigator.pop(sheetContext);
+                      }
+                    },
+                  ),
+                ListTile(
+                  leading: const Icon(
+                    Icons.delete_outline_rounded,
+                    color: Colors.redAccent,
+                  ),
+                  title: const Text(
+                    'Удалить у себя',
+                    style: TextStyle(color: Colors.redAccent),
+                  ),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _deleteMessageForMe(message);
+                  },
+                ),
+                if (message.senderUid ==
+                    FirebaseAuth.instance.currentUser?.uid)
+                  ListTile(
+                    leading: const Icon(
+                      Icons.delete_forever_rounded,
+                      color: Colors.redAccent,
+                    ),
+                    title: const Text(
+                      'Удалить у всех',
+                      style: TextStyle(color: Colors.redAccent),
+                    ),
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      _deleteMessageForEveryone(message);
+                    },
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _deleteMessageForMe(ChatMessage message) async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) return;
+
+    try {
+      await ChatService.deleteMessageForMe(
+        currentUid: currentUser.uid,
+        otherUid: widget.friend.uid,
+        messageId: message.id,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Не удалось удалить сообщение: $error')),
+      );
+    }
+  }
+
+  Future<void> _deleteMessageForEveryone(ChatMessage message) async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null || message.senderUid != currentUser.uid) return;
+
+    try {
+      await ChatService.deleteMessageForEveryone(
+        currentUid: currentUser.uid,
+        otherUid: widget.friend.uid,
+        messageId: message.id,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Не удалось удалить у всех: $error')),
+      );
+    }
+  }
+
+  Future<void> _clearChatForMe() async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null || _clearingChat) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xff20222B),
+          title: const Text(
+            'Очистить чат?',
+            style: TextStyle(color: Colors.white),
+          ),
+          content: Text(
+            'Все сообщения исчезнут только у вас. '
+            'У ${widget.friend.name} переписка останется.',
+            style: const TextStyle(color: Colors.white70),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text(
+                'Отмена',
+                style: TextStyle(color: Colors.white70),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text(
+                'Очистить',
+                style: TextStyle(color: Colors.redAccent),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() {
+      _clearingChat = true;
+    });
+
+    try {
+      await ChatService.clearChatForMe(
+        currentUid: currentUser.uid,
+        otherUid: widget.friend.uid,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _replyingTo = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Чат очищен только у вас')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Не удалось очистить чат: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _clearingChat = false;
+        });
+      }
+    }
   }
 
   void _cancelReply() {
@@ -687,8 +958,82 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         actions: <Widget>[
           IconButton(
-            onPressed: () {},
-            icon: const Icon(Icons.more_vert_rounded, color: Colors.white70),
+            tooltip: 'Аудиозвонок',
+            onPressed: currentUser == null
+                ? null
+                : () {
+                    CallOverlayController.instance.startOutgoing(
+                      otherUid: friend.uid,
+                      otherName: friend.name,
+                      otherPhotoUrl: friend.photoUrl,
+                      type: AppCallType.audio,
+                    );
+                  },
+            icon: const Icon(
+              Icons.call_outlined,
+              color: Colors.white70,
+              size: 22,
+            ),
+          ),
+          IconButton(
+            tooltip: 'Видеозвонок',
+            onPressed: currentUser == null
+                ? null
+                : () {
+                    CallOverlayController.instance.startOutgoing(
+                      otherUid: friend.uid,
+                      otherName: friend.name,
+                      otherPhotoUrl: friend.photoUrl,
+                      type: AppCallType.video,
+                    );
+                  },
+            icon: const Icon(
+              Icons.videocam_outlined,
+              color: Colors.white70,
+              size: 23,
+            ),
+          ),
+          PopupMenuButton<String>(
+            enabled: !_clearingChat,
+            color: const Color(0xff20222B),
+            surfaceTintColor: Colors.transparent,
+            tooltip: 'Меню чата',
+            icon: _clearingChat
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white70,
+                    ),
+                  )
+                : const Icon(
+                    Icons.more_vert_rounded,
+                    color: Colors.white70,
+                  ),
+            onSelected: (value) {
+              if (value == 'clear') {
+                _clearChatForMe();
+              }
+            },
+            itemBuilder: (context) => const <PopupMenuEntry<String>>[
+              PopupMenuItem<String>(
+                value: 'clear',
+                child: Row(
+                  children: <Widget>[
+                    Icon(
+                      Icons.delete_sweep_outlined,
+                      color: Colors.redAccent,
+                    ),
+                    SizedBox(width: 12),
+                    Text(
+                      'Очистить чат',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -710,10 +1055,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 children: <Widget>[
                   Expanded(
                     child: StreamBuilder<List<ChatMessage>>(
-                      stream: ChatService.watchMessages(
-                        currentUid: currentUser.uid,
-                        otherUid: friend.uid,
-                      ),
+                      stream: _messagesStream,
                       builder: (context, snapshot) {
                         if (snapshot.hasError) {
                           return _buildError(snapshot.error);
@@ -749,15 +1091,30 @@ class _ChatScreenState extends State<ChatScreen> {
                           itemBuilder: (context, index) {
                             final message = messages[index];
                             final mine = message.isMine(currentUser.uid);
+                            if (message
+                                .reactionFor(currentUser.uid)
+                                .isEmpty) {
+                              _hiddenOwnReactions.remove(message.id);
+                            }
 
                             return _SwipeToReply(
                               key: ValueKey<String>('reply_${message.id}'),
                               onReply: () => _startReply(message),
-                              child: _MessageBubble(
-                                message: message,
-                                mine: mine,
-                                time: _formatTime(message.createdAt),
-                                currentUid: currentUser.uid,
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.translucent,
+                                onDoubleTap: () {
+                                  _toggleReaction(message, '❤️');
+                                },
+                                onLongPress: () =>
+                                    _showMessageActions(message),
+                                child: _MessageBubble(
+                                  message: message,
+                                  mine: mine,
+                                  time: _formatTime(message.createdAt),
+                                  currentUid: currentUser.uid,
+                                  hideCurrentUserReaction:
+                                      _hiddenOwnReactions.contains(message.id),
+                                ),
                               ),
                             );
                           },
@@ -928,12 +1285,13 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                   ),
                   child: TextField(
+                    key: const ValueKey<String>('chat_message_input'),
                     controller: _controller,
                     focusNode: _focusNode,
                     minLines: 1,
                     maxLines: 5,
                     enabled: !_recordingVoice && !_uploadingVoice,
-                    textInputAction: TextInputAction.send,
+                    textInputAction: TextInputAction.newline,
                     textCapitalization: TextCapitalization.sentences,
                     style: GoogleFonts.poppins(
                       color: Colors.white,
@@ -971,12 +1329,6 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                       border: InputBorder.none,
                     ),
-                    onEditingComplete: () {},
-                    onSubmitted: (_) {
-                      if (_hasText) {
-                        _send();
-                      }
-                    },
                   ),
                 ),
               ),
@@ -1167,14 +1519,21 @@ class _ReplyComposer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xff20222B),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
-      ),
-      child: Row(
-        children: <Widget>[
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final maxWidth = screenWidth >= 720 ? 420.0 : screenWidth * 0.82;
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0xff20222B),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+          ),
+          child: Row(
+            children: <Widget>[
           Container(
             width: 4,
             height: 48,
@@ -1229,8 +1588,128 @@ class _ReplyComposer extends StatelessWidget {
               size: 21,
             ),
           ),
-        ],
+            ],
+          ),
+        ),
       ),
+    );
+  }
+}
+
+class _ReactionLandingAnimation extends StatefulWidget {
+  const _ReactionLandingAnimation({
+    super.key,
+    required this.child,
+  });
+
+  final Widget child;
+
+  @override
+  State<_ReactionLandingAnimation> createState() =>
+      _ReactionLandingAnimationState();
+}
+
+class _ReactionLandingAnimationState extends State<_ReactionLandingAnimation>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _scale;
+  late final Animation<double> _verticalOffset;
+  late final Animation<double> _rotation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 620),
+    );
+
+    _scale = TweenSequence<double>(<TweenSequenceItem<double>>[
+      TweenSequenceItem<double>(
+        tween: Tween<double>(begin: 0.82, end: 1.18)
+            .chain(CurveTween(curve: Curves.easeOutBack)),
+        weight: 28,
+      ),
+      TweenSequenceItem<double>(
+        tween: Tween<double>(begin: 1.18, end: 0.96)
+            .chain(CurveTween(curve: Curves.easeInOut)),
+        weight: 20,
+      ),
+      TweenSequenceItem<double>(
+        tween: Tween<double>(begin: 0.96, end: 1.06)
+            .chain(CurveTween(curve: Curves.easeOut)),
+        weight: 18,
+      ),
+      TweenSequenceItem<double>(
+        tween: Tween<double>(begin: 1.06, end: 1)
+            .chain(CurveTween(curve: Curves.easeOut)),
+        weight: 34,
+      ),
+    ]).animate(_controller);
+
+    _verticalOffset = TweenSequence<double>(<TweenSequenceItem<double>>[
+      TweenSequenceItem<double>(
+        tween: Tween<double>(begin: 0, end: -19)
+            .chain(CurveTween(curve: Curves.easeOutCubic)),
+        weight: 42,
+      ),
+      TweenSequenceItem<double>(
+        tween: Tween<double>(begin: -19, end: -14)
+            .chain(CurveTween(curve: Curves.easeInOut)),
+        weight: 20,
+      ),
+      TweenSequenceItem<double>(
+        tween: Tween<double>(begin: -14, end: 0)
+            .chain(CurveTween(curve: Curves.bounceOut)),
+        weight: 38,
+      ),
+    ]).animate(_controller);
+
+    _rotation = TweenSequence<double>(<TweenSequenceItem<double>>[
+      TweenSequenceItem<double>(
+        tween: Tween<double>(begin: 0, end: -0.13),
+        weight: 28,
+      ),
+      TweenSequenceItem<double>(
+        tween: Tween<double>(begin: -0.13, end: 0.12),
+        weight: 24,
+      ),
+      TweenSequenceItem<double>(
+        tween: Tween<double>(begin: 0.12, end: -0.06),
+        weight: 20,
+      ),
+      TweenSequenceItem<double>(
+        tween: Tween<double>(begin: -0.06, end: 0),
+        weight: 28,
+      ),
+    ]).animate(_controller);
+
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Transform.translate(
+          offset: Offset(0, _verticalOffset.value),
+          child: Transform.rotate(
+            angle: _rotation.value,
+            child: Transform.scale(
+              scale: _scale.value,
+              child: child,
+            ),
+          ),
+        );
+      },
+      child: widget.child,
     );
   }
 }
@@ -1241,36 +1720,37 @@ class _MessageBubble extends StatelessWidget {
     required this.mine,
     required this.time,
     required this.currentUid,
+    required this.hideCurrentUserReaction,
   });
 
   final ChatMessage message;
   final bool mine;
   final String time;
   final String currentUid;
+  final bool hideCurrentUserReaction;
 
   @override
   Widget build(BuildContext context) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween<double>(begin: 0, end: 1),
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOut,
-      builder: (context, value, child) {
-        return Opacity(
-          opacity: value,
-          child: Transform.translate(
-            offset: Offset(
-              mine ? 12 * (1 - value) : -12 * (1 - value),
-              4 * (1 - value),
-            ),
-            child: child,
-          ),
-        );
-      },
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final bubbleMaxWidth = screenWidth >= 720 ? 560.0 : screenWidth * 0.78;
+    final visibleReactions = Map<String, String>.from(message.reactions);
+    if (hideCurrentUserReaction) {
+      visibleReactions.remove(currentUid);
+    }
+
+    return RepaintBoundary(
       child: Align(
         alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-        child: Container(
+        child: Padding(
+          padding: EdgeInsets.only(
+            bottom: visibleReactions.isEmpty ? 0 : 13,
+          ),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: <Widget>[
+              Container(
           constraints: BoxConstraints(
-            maxWidth: MediaQuery.sizeOf(context).width * 0.78,
+            maxWidth: bubbleMaxWidth,
           ),
           margin: const EdgeInsets.symmetric(vertical: 3),
           padding: message.isImage
@@ -1307,7 +1787,7 @@ class _MessageBubble extends StatelessWidget {
                 : null,
           ),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+            crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               if (message.hasReply) ...<Widget>[
@@ -1322,7 +1802,63 @@ class _MessageBubble extends StatelessWidget {
                 _buildTextMessage(),
             ],
           ),
+              ),
+              if (visibleReactions.isNotEmpty)
+                Positioned(
+                  bottom: -12,
+                  left: mine ? null : 9,
+                  right: mine ? 9 : null,
+                  child: _ReactionLandingAnimation(
+                    key: ValueKey<String>(
+                      'reaction_${message.id}_$visibleReactions',
+                    ),
+                    child: _buildReactions(visibleReactions),
+                  ),
+                ),
+            ],
+          ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildReactions(Map<String, String> visibleReactions) {
+    final counts = <String, int>{};
+    for (final emoji in visibleReactions.values) {
+      counts[emoji] = (counts[emoji] ?? 0) + 1;
+    }
+    final myReaction = visibleReactions[currentUid] ?? '';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xff11121A),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.35),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: counts.entries.map((entry) {
+        final selected = entry.key == myReaction;
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 2),
+          child: AnimatedScale(
+            scale: selected ? 1.08 : 1,
+            duration: const Duration(milliseconds: 180),
+            child: Text(
+              entry.value > 1 ? '${entry.key} ${entry.value}' : entry.key,
+              style: const TextStyle(fontSize: 16, height: 1),
+            ),
+          ),
+        );
+      }).toList(),
       ),
     );
   }

@@ -23,9 +23,12 @@ class VoiceMessagePlayer extends StatefulWidget {
 class _VoiceMessagePlayerState extends State<VoiceMessagePlayer> {
   final AudioPlayer _player = AudioPlayer();
   StreamSubscription<PlayerState>? _stateSubscription;
+  StreamSubscription<Duration>? _positionSubscription;
+  StreamSubscription<Duration?>? _durationSubscription;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   bool _loading = false;
+  bool _playRequested = false;
   String? _error;
 
   @override
@@ -33,11 +36,11 @@ class _VoiceMessagePlayerState extends State<VoiceMessagePlayer> {
     super.initState();
     _duration = Duration(seconds: widget.durationSeconds);
 
-    _player.positionStream.listen((position) {
+    _positionSubscription = _player.positionStream.listen((position) {
       if (mounted) setState(() => _position = position);
     });
 
-    _player.durationStream.listen((duration) {
+    _durationSubscription = _player.durationStream.listen((duration) {
       if (duration != null && mounted) {
         setState(() => _duration = duration);
       }
@@ -55,34 +58,54 @@ class _VoiceMessagePlayerState extends State<VoiceMessagePlayer> {
   @override
   void dispose() {
     _stateSubscription?.cancel();
+    _positionSubscription?.cancel();
+    _durationSubscription?.cancel();
     _player.dispose();
     super.dispose();
   }
 
   Future<void> _togglePlayback() async {
-    if (_loading) return;
+    if (_loading) {
+      setState(() {
+        _playRequested = !_playRequested;
+      });
+      if (!_playRequested) {
+        await _player.pause();
+      }
+      return;
+    }
 
     try {
+      final shouldPlay = !_player.playing;
       setState(() {
         _loading = true;
+        _playRequested = shouldPlay;
         _error = null;
       });
 
-      if (_player.audioSource == null) {
+      if (shouldPlay && _player.audioSource == null) {
         await _player.setUrl(widget.url);
       }
 
-      if (_player.playing) {
+      if (!shouldPlay) {
         await _player.pause();
-      } else {
+      } else if (_playRequested) {
         await _player.play();
       }
     } catch (_) {
       if (mounted) {
-        setState(() => _error = 'Не удалось открыть аудио');
+        setState(() {
+          _playRequested = false;
+          _error = 'Ошибка аудио';
+        });
       }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _playRequested = _player.playing;
+        });
+      }
     }
   }
 
@@ -101,80 +124,120 @@ class _VoiceMessagePlayerState extends State<VoiceMessagePlayer> {
     final progress = totalMs <= 0
         ? 0.0
         : (_position.inMilliseconds / totalMs).clamp(0.0, 1.0);
-    final playing = _player.playing;
+    final playing = _player.playing || _playRequested;
 
     return SizedBox(
-      width: 230,
+      width: 232,
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[
-          Material(
-            color: widget.mine
-                ? Colors.white.withValues(alpha: 0.18)
-                : const Color(0xff343743),
-            shape: const CircleBorder(),
-            child: InkWell(
-              onTap: _togglePlayback,
-              customBorder: const CircleBorder(),
-              child: SizedBox(
-                width: 44,
-                height: 44,
-                child: Center(
-                  child: _loading
-                      ? const SizedBox(
-                          width: 19,
-                          height: 19,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : Icon(
-                          playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                          color: Colors.white,
-                          size: 28,
-                        ),
-                ),
+          InkResponse(
+            onTap: _togglePlayback,
+            radius: 24,
+            child: SizedBox(
+              width: 36,
+              height: 36,
+              child: Icon(
+                playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                color: Colors.white,
+                size: 29,
               ),
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 7),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                GestureDetector(
-                  onTapDown: (details) async {
-                    if (_player.audioSource == null) {
-                      await _player.setUrl(widget.url);
-                    }
-                    final box = context.findRenderObject() as RenderBox?;
-                    if (box == null || totalMs <= 0) return;
-                    final width = box.size.width;
-                    final fraction = (details.localPosition.dx / width).clamp(0.0, 1.0);
-                    await _player.seek(
-                      Duration(milliseconds: (totalMs * fraction).round()),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    const barCount = 32;
+                    final playedBars = (barCount * progress).round();
+
+                    return GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTapDown: (details) async {
+                        if (totalMs <= 0 || constraints.maxWidth <= 0) return;
+                        if (_player.audioSource == null) {
+                          await _player.setUrl(widget.url);
+                        }
+                        final fraction =
+                            (details.localPosition.dx / constraints.maxWidth)
+                                .clamp(0.0, 1.0);
+                        await _player.seek(
+                          Duration(
+                            milliseconds: (totalMs * fraction).round(),
+                          ),
+                        );
+                      },
+                      child: SizedBox(
+                        height: 25,
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: List<Widget>.generate(barCount, (index) {
+                            const heights = <double>[
+                              7, 12, 18, 10, 15, 22, 13, 9,
+                              17, 24, 14, 8, 19, 12, 21, 10,
+                            ];
+                            return Expanded(
+                              child: Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 1),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 120),
+                                  height: heights[index % heights.length],
+                                  decoration: BoxDecoration(
+                                    color: index < playedBars
+                                        ? Colors.white
+                                        : Colors.white.withValues(alpha: 0.38),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                ),
+                              ),
+                            );
+                          }),
+                        ),
+                      ),
                     );
                   },
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(20),
-                    child: LinearProgressIndicator(
-                      value: progress,
-                      minHeight: 5,
-                      backgroundColor: Colors.white.withValues(alpha: 0.20),
-                      valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                  ),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  _error ?? '${_format(_position)} / ${_format(_duration)}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.poppins(
-                    color: _error == null ? Colors.white70 : Colors.red.shade100,
-                    fontSize: 10,
-                  ),
+                const SizedBox(height: 1),
+                Row(
+                  children: <Widget>[
+                    Text(
+                      _error ?? _format(_position),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.poppins(
+                        color: _error == null
+                            ? Colors.white70
+                            : Colors.red.shade100,
+                        fontSize: 10,
+                      ),
+                    ),
+                    if (_error == null) ...<Widget>[
+                      Text(
+                        ' / ${_format(_duration)}',
+                        style: GoogleFonts.poppins(
+                          color: Colors.white54,
+                          fontSize: 10,
+                        ),
+                      ),
+                      if (_loading)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 5),
+                          child: Container(
+                            width: 4,
+                            height: 4,
+                            decoration: const BoxDecoration(
+                              color: Colors.white54,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ],
                 ),
               ],
             ),
