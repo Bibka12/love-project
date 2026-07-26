@@ -520,17 +520,24 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _endCall() async {
     if (_ending) return;
     _ending = true;
-    await _stopRingSound();
-    final callId = _callId;
-    if (callId != null) {
-      await CallService.setStatus(
-        callId,
-        _isIncoming && !_accepted ? 'declined' : 'ended',
-      );
-      await _saveCallInChat(callId);
+    try {
+      await _stopRingSound();
+      final callId = _callId;
+      if (callId != null) {
+        await CallService.setStatus(
+          callId,
+          _isIncoming && !_accepted ? 'declined' : 'ended',
+        );
+        try {
+          await _saveCallInChat(callId);
+        } catch (_) {
+          // История звонка не должна мешать закрытию самого звонка.
+        }
+      }
+    } finally {
+      await _disposeCall();
+      _closeUi();
     }
-    await _disposeCall();
-    _closeUi();
   }
 
   Future<void> _saveCallInChat(String callId) async {
@@ -551,13 +558,21 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _closeWithoutUpdating() async {
     if (_ending) return;
     _ending = true;
-    await _stopRingSound();
-    final callId = _callId;
-    if (callId != null) {
-      await _saveCallInChat(callId);
+    try {
+      await _stopRingSound();
+      final callId = _callId;
+      if (callId != null) {
+        try {
+          await _saveCallInChat(callId);
+        } catch (_) {
+          // Второе устройство уже завершило звонок. Даже если историю
+          // сохранить не удалось, экран звонка обязан закрыться.
+        }
+      }
+    } finally {
+      await _disposeCall();
+      _closeUi();
     }
-    await _disposeCall();
-    _closeUi();
   }
 
   void _closeUi() {
