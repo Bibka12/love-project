@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
+import 'notification_sender.dart';
+
 enum AppCallType { audio, video }
 
 class AppCall {
@@ -151,6 +153,9 @@ class CallService {
       'answeredAt': null,
       'endedAt': null,
     });
+    unawaited(
+      NotificationSender.sendCallNotification(callId: reference.id),
+    );
     return reference.id;
   }
 

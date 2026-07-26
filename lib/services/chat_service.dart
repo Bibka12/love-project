@@ -1,4 +1,8 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+
+import 'notification_sender.dart';
 
 class ChatMessage {
   const ChatMessage({
@@ -395,6 +399,12 @@ class ChatService {
     });
 
     await batch.commit();
+    unawaited(
+      NotificationSender.sendMessageNotification(
+        chatId: chatReference.id,
+        messageId: messageReference.id,
+      ),
+    );
   }
 
   static Future<void> markMessagesAsRead({

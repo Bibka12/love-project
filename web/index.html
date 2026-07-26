@@ -367,10 +367,24 @@
     );
   </script>
 
-  <script
-    src="flutter_bootstrap.js"
-    async
-  ></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker
+          .register("firebase-messaging-sw.js", {
+            scope: "firebase-cloud-messaging-push-scope/",
+          })
+          .catch(function (error) {
+            console.error(
+              "Firebase Messaging service worker registration failed:",
+              error
+            );
+          });
+      });
+    }
+  </script>
+
+  <script src="flutter_bootstrap.js" async></script>
 
 </body>
 </html>
