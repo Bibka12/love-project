@@ -36,6 +36,25 @@ class CloudinaryService {
     );
   }
 
+  /// Загрузка аватарки из байтов.
+  ///
+  /// Нужна для Flutter Web, потому что браузер не предоставляет приложению
+  /// обычный путь к выбранному локальному файлу.
+  static Future<String> uploadProfileAvatarBytes({
+    required Uint8List imageBytes,
+    required String fileName,
+    required String userId,
+  }) {
+    return _uploadBytes(
+      bytes: imageBytes,
+      fileName: fileName,
+      resourceType: 'image',
+      tags: 'profile_avatar,user_$userId',
+      emptyFileMessage: 'Выбранная фотография пустая.',
+      missingUrlMessage: 'Cloudinary не вернул ссылку на фотографию.',
+    );
+  }
+
   static Future<String> uploadChatImage({
     required File imageFile,
     required String userId,

@@ -51,6 +51,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Timer? _typingTimer;
   bool _typingSent = false;
   final Set<String> _hiddenOwnReactions = <String>{};
+  final Map<String, int> _reactionAnimationVersions = <String, int>{};
 
   @override
   void initState() {
@@ -129,7 +130,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final currentUser = FirebaseAuth.instance.currentUser;
     final text = _controller.text.trim();
     final replyTo = _buildReplyPayload(currentUser);
-    final keepKeyboardOpen = _focusNode.hasFocus;
+    final keepKeyboardOpen = kIsWeb || _focusNode.hasFocus;
 
     if (currentUser == null || text.isEmpty || _sending) {
       return;
@@ -141,11 +142,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     _controller.clear();
     if (keepKeyboardOpen) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _focusNode.requestFocus();
-        }
-      });
+      _restoreComposerFocus();
     }
     _setTyping(false);
 
@@ -187,9 +184,25 @@ class _ChatScreenState extends State<ChatScreen> {
         setState(() {
           _sending = false;
         });
+        if (keepKeyboardOpen) {
+          _restoreComposerFocus();
+        }
       }
 
     }
+  }
+
+  void _restoreComposerFocus() {
+    if (!mounted) return;
+
+    _focusNode.requestFocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _focusNode.requestFocus();
+      if (kIsWeb) {
+        SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+      }
+    });
   }
 
   String _replyPreview(ChatMessage message) {
@@ -266,6 +279,12 @@ class _ChatScreenState extends State<ChatScreen> {
         messageId: message.id,
         emoji: emoji,
       );
+      if (!removing && mounted) {
+        setState(() {
+          _reactionAnimationVersions[message.id] =
+              (_reactionAnimationVersions[message.id] ?? 0) + 1;
+        });
+      }
     } catch (error) {
       if (!mounted) return;
       if (removing) {
@@ -1112,6 +1131,9 @@ class _ChatScreenState extends State<ChatScreen> {
                                   mine: mine,
                                   time: _formatTime(message.createdAt),
                                   currentUid: currentUser.uid,
+                                  reactionAnimationVersion:
+                                      _reactionAnimationVersions[message.id] ??
+                                      0,
                                   hideCurrentUserReaction:
                                       _hiddenOwnReactions.contains(message.id),
                                 ),
@@ -1380,17 +1402,21 @@ class _ChatScreenState extends State<ChatScreen> {
                                 ),
                               ),
                             )
-                          : IconButton(
-                              onPressed: _hasText ? _send : null,
-                              icon: Icon(
-                                _hasText
-                                    ? Icons.send_rounded
-                                    : (_recordingVoice
-                                        ? Icons.mic_rounded
-                                        : Icons.mic_none_rounded),
-                                color: _hasText || _recordingVoice
-                                    ? Colors.white
-                                    : Colors.white54,
+                          : Focus(
+                              canRequestFocus: false,
+                              descendantsAreFocusable: false,
+                              child: IconButton(
+                                onPressed: _hasText ? _send : null,
+                                icon: Icon(
+                                  _hasText
+                                      ? Icons.send_rounded
+                                      : (_recordingVoice
+                                          ? Icons.mic_rounded
+                                          : Icons.mic_none_rounded),
+                                  color: _hasText || _recordingVoice
+                                      ? Colors.white
+                                      : Colors.white54,
+                                ),
                               ),
                             ),
                     ),
@@ -1720,6 +1746,7 @@ class _MessageBubble extends StatelessWidget {
     required this.mine,
     required this.time,
     required this.currentUid,
+    required this.reactionAnimationVersion,
     required this.hideCurrentUserReaction,
   });
 
@@ -1727,6 +1754,7 @@ class _MessageBubble extends StatelessWidget {
   final bool mine;
   final String time;
   final String currentUid;
+  final int reactionAnimationVersion;
   final bool hideCurrentUserReaction;
 
   @override
@@ -1808,12 +1836,15 @@ class _MessageBubble extends StatelessWidget {
                   bottom: -12,
                   left: mine ? null : 9,
                   right: mine ? 9 : null,
-                  child: _ReactionLandingAnimation(
-                    key: ValueKey<String>(
-                      'reaction_${message.id}_$visibleReactions',
-                    ),
-                    child: _buildReactions(visibleReactions),
-                  ),
+                  child: reactionAnimationVersion > 0
+                      ? _ReactionLandingAnimation(
+                          key: ValueKey<String>(
+                            'reaction_${message.id}_'
+                            '$reactionAnimationVersion',
+                          ),
+                          child: _buildReactions(visibleReactions),
+                        )
+                      : _buildReactions(visibleReactions),
                 ),
             ],
           ),

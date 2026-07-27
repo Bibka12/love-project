@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -93,6 +94,7 @@ class _CallScreenState extends State<CallScreen> {
 
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
+  MediaStream? _cameraStream;
   MediaStream? _remoteFallbackStream;
   StreamSubscription<RTCIceCandidate>? _candidateSubscription;
   StreamSubscription<RTCSessionDescription?>? _answerSubscription;
@@ -106,6 +108,9 @@ class _CallScreenState extends State<CallScreen> {
   bool _microphoneEnabled = true;
   bool _cameraEnabled = false;
   bool _speakerEnabled = true;
+  bool _usingFrontCamera = true;
+  bool _cameraOperationInProgress = false;
+  bool _speakerOperationInProgress = false;
   bool _remoteCameraEnabled = false;
   bool _accepted = false;
   bool _ending = false;
@@ -431,80 +436,240 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> _toggleCamera() async {
+    if (_cameraOperationInProgress) return;
     final shouldEnable = !_cameraEnabled;
-    if (shouldEnable &&
-        (_localStream?.getVideoTracks().isEmpty ?? true)) {
-      try {
-        final cameraStream = await navigator.mediaDevices.getUserMedia(
-          <String, dynamic>{
-            'audio': false,
-            'video': <String, dynamic>{
-              'facingMode': 'user',
-              'width': <String, dynamic>{'ideal': 720},
-              'height': <String, dynamic>{'ideal': 1280},
-            },
-          },
-        );
-        for (final track in cameraStream.getVideoTracks()) {
-          await _localStream?.addTrack(track);
-          final transceivers =
-              await _peerConnection?.getTransceivers() ??
-              <RTCRtpTransceiver>[];
-          RTCRtpTransceiver? videoTransceiver;
-          for (final transceiver in transceivers) {
-            if (transceiver.receiver.track?.kind == 'video') {
-              videoTransceiver = transceiver;
-              break;
+    if (mounted) {
+      setState(() => _cameraOperationInProgress = true);
+    }
+
+    try {
+      if (shouldEnable &&
+          (_localStream?.getVideoTracks().isEmpty ?? true)) {
+        try {
+          final cameraStream = await _captureCameraStream(frontCamera: true);
+          _cameraStream = cameraStream;
+          _usingFrontCamera = true;
+          for (final track in cameraStream.getVideoTracks()) {
+            await _localStream?.addTrack(track);
+            final transceivers =
+                await _peerConnection?.getTransceivers() ??
+                <RTCRtpTransceiver>[];
+            RTCRtpTransceiver? videoTransceiver;
+            for (final transceiver in transceivers) {
+              if (transceiver.receiver.track?.kind == 'video') {
+                videoTransceiver = transceiver;
+                break;
+              }
+            }
+
+            if (videoTransceiver != null) {
+              await videoTransceiver.sender.replaceTrack(track);
+              await videoTransceiver.setDirection(
+                TransceiverDirection.SendRecv,
+              );
+            } else {
+              // Запасной вариант для старых видеозвонков, созданных до фикса.
+              await _peerConnection?.addTrack(track, _localStream!);
             }
           }
-
-          if (videoTransceiver != null) {
-            await videoTransceiver.sender.replaceTrack(track);
-            await videoTransceiver.setDirection(
-              TransceiverDirection.SendRecv,
+          _localRenderer.srcObject = _localStream;
+        } catch (error) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Камера недоступна: $error')),
             );
-          } else {
-            // Запасной вариант для старых видеозвонков, созданных до фикса.
-            await _peerConnection?.addTrack(track, _localStream!);
           }
+          return;
         }
-        _localRenderer.srcObject = _localStream;
-      } catch (error) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Камера недоступна: $error')),
-          );
-        }
-        return;
       }
-    }
 
-    _cameraEnabled = shouldEnable;
-    for (final track in _localStream?.getVideoTracks() ?? <MediaStreamTrack>[]) {
-      track.enabled = _cameraEnabled;
-    }
-    setState(() {});
-    final callId = _callId;
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (callId != null && uid != null) {
-      await CallService.setVideoEnabled(
-        callId: callId,
-        uid: uid,
-        enabled: _cameraEnabled,
-      );
+      _cameraEnabled = shouldEnable;
+      for (final track
+          in _localStream?.getVideoTracks() ?? <MediaStreamTrack>[]) {
+        track.enabled = _cameraEnabled;
+      }
+      if (mounted) setState(() {});
+      final callId = _callId;
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (callId != null && uid != null) {
+        await CallService.setVideoEnabled(
+          callId: callId,
+          uid: uid,
+          enabled: _cameraEnabled,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _cameraOperationInProgress = false);
+      }
     }
   }
 
   Future<void> _switchCamera() async {
+    if (_cameraOperationInProgress || !_cameraEnabled) return;
     final tracks = _localStream?.getVideoTracks() ?? <MediaStreamTrack>[];
     if (tracks.isEmpty) return;
-    await Helper.switchCamera(tracks.first);
+
+    setState(() => _cameraOperationInProgress = true);
+    try {
+      if (!kIsWeb) {
+        await Helper.switchCamera(tracks.first);
+        _usingFrontCamera = !_usingFrontCamera;
+        if (mounted) setState(() {});
+        return;
+      }
+
+      await _replaceWebCameraTrack(
+        frontCamera: !_usingFrontCamera,
+      );
+    } catch (error) {
+      _showTransientMessage('Не удалось повернуть камеру: $error');
+    } finally {
+      if (mounted) {
+        setState(() => _cameraOperationInProgress = false);
+      }
+    }
   }
 
   Future<void> _toggleSpeaker() async {
-    _speakerEnabled = !_speakerEnabled;
-    await Helper.setSpeakerphoneOn(_speakerEnabled);
+    if (_speakerOperationInProgress) return;
+
+    if (kIsWeb) {
+      _showTransientMessage(
+        'В веб-версии вывод звука выбирается в браузере или настройках телефона',
+      );
+      return;
+    }
+
+    final nextValue = !_speakerEnabled;
+    setState(() {
+      _speakerEnabled = nextValue;
+      _speakerOperationInProgress = true;
+    });
+
+    try {
+      await Helper.setSpeakerphoneOn(nextValue);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _speakerEnabled = !nextValue);
+      }
+      _showTransientMessage('Не удалось переключить динамик: $error');
+    } finally {
+      if (mounted) {
+        setState(() => _speakerOperationInProgress = false);
+      }
+    }
+  }
+
+  Future<MediaStream> _captureCameraStream({
+    required bool frontCamera,
+  }) async {
+    final facingMode = frontCamera ? 'user' : 'environment';
+    final baseVideoConstraints = <String, dynamic>{
+      'width': <String, dynamic>{'ideal': 720},
+      'height': <String, dynamic>{'ideal': 1280},
+      'frameRate': <String, dynamic>{'ideal': 24, 'max': 30},
+    };
+
+    if (kIsWeb) {
+      try {
+        return await navigator.mediaDevices.getUserMedia(
+          <String, dynamic>{
+            'audio': false,
+            'video': <String, dynamic>{
+              ...baseVideoConstraints,
+              'facingMode': <String, dynamic>{'exact': facingMode},
+            },
+          },
+        );
+      } catch (_) {
+        // Не все браузеры поддерживают exact. Повторяем с мягким условием.
+      }
+    }
+
+    return navigator.mediaDevices.getUserMedia(
+      <String, dynamic>{
+        'audio': false,
+        'video': <String, dynamic>{
+          ...baseVideoConstraints,
+          'facingMode': <String, dynamic>{'ideal': facingMode},
+        },
+      },
+    );
+  }
+
+  Future<void> _replaceWebCameraTrack({
+    required bool frontCamera,
+  }) async {
+    final localStream = _localStream;
+    final peerConnection = _peerConnection;
+    if (localStream == null || peerConnection == null) return;
+
+    final replacementStream = await _captureCameraStream(
+      frontCamera: frontCamera,
+    );
+    final replacementTracks = replacementStream.getVideoTracks();
+    if (replacementTracks.isEmpty) {
+      await replacementStream.dispose();
+      throw StateError('Браузер не вернул видеопоток');
+    }
+
+    final replacementTrack = replacementTracks.first;
+    var replacedSenderTrack = false;
+    final senders = await peerConnection.getSenders();
+    for (final sender in senders) {
+      if (sender.track?.kind == 'video') {
+        await sender.replaceTrack(replacementTrack);
+        replacedSenderTrack = true;
+        break;
+      }
+    }
+
+    if (!replacedSenderTrack) {
+      final transceivers = await peerConnection.getTransceivers();
+      for (final transceiver in transceivers) {
+        if (transceiver.receiver.track?.kind == 'video') {
+          await transceiver.sender.replaceTrack(replacementTrack);
+          await transceiver.setDirection(TransceiverDirection.SendRecv);
+          replacedSenderTrack = true;
+          break;
+        }
+      }
+    }
+
+    if (!replacedSenderTrack) {
+      await peerConnection.addTrack(replacementTrack, localStream);
+    }
+
+    final oldTracks = List<MediaStreamTrack>.of(
+      localStream.getVideoTracks(),
+    );
+    for (final oldTrack in oldTracks) {
+      oldTrack.stop();
+      await localStream.removeTrack(oldTrack);
+    }
+    await localStream.addTrack(replacementTrack);
+
+    final previousCameraStream = _cameraStream;
+    _cameraStream = replacementStream;
+    _usingFrontCamera = frontCamera;
+    _localRenderer.srcObject = localStream;
+    await previousCameraStream?.dispose();
+
     if (mounted) setState(() {});
+  }
+
+  void _showTransientMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+        ),
+      );
   }
 
   Future<void> _decline() async {
@@ -595,6 +760,7 @@ class _CallScreenState extends State<CallScreen> {
       track.stop();
     }
     await _localStream?.dispose();
+    await _cameraStream?.dispose();
     await _remoteFallbackStream?.dispose();
     await _peerConnection?.close();
     _localRenderer.srcObject = null;
@@ -691,7 +857,7 @@ class _CallScreenState extends State<CallScreen> {
                   borderRadius: BorderRadius.circular(22),
                   child: RTCVideoView(
                     _localRenderer,
-                    mirror: true,
+                    mirror: false,
                     objectFit:
                         RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
                   ),
@@ -745,6 +911,8 @@ class _CallScreenState extends State<CallScreen> {
                       microphoneEnabled: _microphoneEnabled,
                       cameraEnabled: _cameraEnabled,
                       speakerEnabled: _speakerEnabled,
+                      cameraBusy: _cameraOperationInProgress,
+                      speakerBusy: _speakerOperationInProgress,
                       onMicrophone: _toggleMicrophone,
                       onCamera: _toggleCamera,
                       onSwitchCamera: _switchCamera,
@@ -952,6 +1120,8 @@ class _ActiveControls extends StatelessWidget {
     required this.microphoneEnabled,
     required this.cameraEnabled,
     required this.speakerEnabled,
+    required this.cameraBusy,
+    required this.speakerBusy,
     required this.onMicrophone,
     required this.onCamera,
     required this.onSwitchCamera,
@@ -962,6 +1132,8 @@ class _ActiveControls extends StatelessWidget {
   final bool microphoneEnabled;
   final bool cameraEnabled;
   final bool speakerEnabled;
+  final bool cameraBusy;
+  final bool speakerBusy;
   final VoidCallback onMicrophone;
   final VoidCallback onCamera;
   final VoidCallback onSwitchCamera;
@@ -986,7 +1158,9 @@ class _ActiveControls extends StatelessWidget {
             onTap: onMicrophone,
           ),
           _RoundCallButton(
-            icon: cameraEnabled
+            icon: cameraBusy
+                ? Icons.hourglass_top_rounded
+                : cameraEnabled
                 ? Icons.videocam_rounded
                 : Icons.videocam_off_rounded,
             label: 'Камера',
@@ -1000,7 +1174,9 @@ class _ActiveControls extends StatelessWidget {
               onTap: onSwitchCamera,
             ),
           _RoundCallButton(
-            icon: speakerEnabled
+            icon: speakerBusy
+                ? Icons.hourglass_top_rounded
+                : speakerEnabled
                 ? Icons.volume_up_rounded
                 : Icons.volume_down_rounded,
             label: 'Динамик',
@@ -1042,9 +1218,9 @@ class _RoundCallButton extends StatelessWidget {
         ? const Color(0xff171923)
         : Colors.white;
 
-    return InkWell(
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: onTap,
-      borderRadius: BorderRadius.circular(40),
       child: SizedBox(
         width: 76,
         child: Column(

@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
@@ -30,6 +32,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late final TextEditingController statusController;
 
   XFile? selectedImage;
+  Uint8List? selectedImageBytes;
 
   String currentPhotoUrl = '';
 
@@ -112,8 +115,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         return;
       }
 
+      final imageBytes = await image.readAsBytes();
+
+      if (imageBytes.isEmpty) {
+        throw StateError('Выбранная фотография пустая.');
+      }
+
+      if (!mounted) return;
+
       setState(() {
         selectedImage = image;
+        selectedImageBytes = imageBytes;
       });
     } catch (error) {
       if (!mounted) return;
@@ -159,10 +171,25 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       String? uploadedPhotoUrl;
 
       if (selectedImage != null) {
-        uploadedPhotoUrl = await CloudinaryService.uploadProfileAvatar(
-          imageFile: File(selectedImage!.path),
-          userId: widget.user.uid,
-        ).timeout(const Duration(seconds: 30));
+        if (kIsWeb) {
+          final imageBytes =
+              selectedImageBytes ?? await selectedImage!.readAsBytes();
+
+          uploadedPhotoUrl =
+              await CloudinaryService.uploadProfileAvatarBytes(
+                imageBytes: imageBytes,
+                fileName: selectedImage!.name.trim().isEmpty
+                    ? 'profile_avatar_${DateTime.now().millisecondsSinceEpoch}.jpg'
+                    : selectedImage!.name,
+                userId: widget.user.uid,
+              ).timeout(const Duration(seconds: 90));
+        } else {
+          uploadedPhotoUrl =
+              await CloudinaryService.uploadProfileAvatar(
+                imageFile: File(selectedImage!.path),
+                userId: widget.user.uid,
+              ).timeout(const Duration(seconds: 90));
+        }
       }
 
       await UserProfileService.updateProfile(
@@ -214,8 +241,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   ImageProvider<Object>? _avatarProvider() {
-    if (selectedImage != null) {
-      return FileImage(File(selectedImage!.path));
+    if (selectedImageBytes != null) {
+      return MemoryImage(selectedImageBytes!);
     }
 
     if (currentPhotoUrl.isNotEmpty) {
