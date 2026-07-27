@@ -276,7 +276,7 @@ class CallService {
       transaction.set(
         chatReference,
         <String, dynamic>{
-          'participants': <String>[callerUid, receiverUid],
+          'participants': ids,
           'lastMessage': '$label$durationLabel',
           'lastSenderUid': callerUid,
           'updatedAt': FieldValue.serverTimestamp(),

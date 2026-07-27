@@ -20,6 +20,7 @@ class NotificationService {
   StreamSubscription<User?>? _authSubscription;
   StreamSubscription<String>? _tokenSubscription;
   StreamSubscription<RemoteMessage>? _foregroundSubscription;
+  StreamSubscription<RemoteMessage>? _openedAppSubscription;
   GlobalKey<NavigatorState>? _navigatorKey;
   bool _initialized = false;
 
@@ -30,31 +31,51 @@ class NotificationService {
     _initialized = true;
     _navigatorKey = navigatorKey;
 
-    await _messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-      provisional: false,
-    );
+    try {
+      if (kIsWeb && !await _messaging.isSupported()) {
+        debugPrint('FCM is not supported by this browser');
+        return;
+      }
 
-    _authSubscription = FirebaseAuth.instance.authStateChanges().listen(
-      (user) async {
+      final settings = await _messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+        provisional: false,
+      );
+      debugPrint('Notification permission: ${settings.authorizationStatus}');
+
+      _authSubscription = FirebaseAuth.instance.authStateChanges().listen((
+        user,
+      ) async {
         if (user != null) {
           await _registerCurrentToken(user.uid);
         }
-      },
-    );
+      });
 
-    _tokenSubscription = _messaging.onTokenRefresh.listen((token) async {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid != null) {
-        await _saveToken(uid: uid, token: token);
+      _tokenSubscription = _messaging.onTokenRefresh.listen((token) async {
+        final uid = FirebaseAuth.instance.currentUser?.uid;
+        if (uid != null) {
+          await _saveToken(uid: uid, token: token);
+        }
+      });
+
+      _foregroundSubscription = FirebaseMessaging.onMessage.listen(
+        _showForegroundMessage,
+      );
+      _openedAppSubscription = FirebaseMessaging.onMessageOpenedApp.listen(
+        _handleNotificationOpen,
+      );
+
+      final initialMessage = await _messaging.getInitialMessage();
+      if (initialMessage != null) {
+        _handleNotificationOpen(initialMessage);
       }
-    });
-
-    _foregroundSubscription = FirebaseMessaging.onMessage.listen(
-      _showForegroundMessage,
-    );
+    } catch (error, stackTrace) {
+      debugPrint('Notification initialization failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      _initialized = false;
+    }
   }
 
   Future<void> _registerCurrentToken(String uid) async {
@@ -64,22 +85,17 @@ class NotificationService {
       );
       if (token == null || token.trim().isEmpty) return;
       await _saveToken(uid: uid, token: token);
+      debugPrint('FCM token saved for user $uid');
     } catch (error) {
       debugPrint('FCM token registration failed: $error');
     }
   }
 
-  Future<void> _saveToken({
-    required String uid,
-    required String token,
-  }) {
-    return _firestore.collection('users').doc(uid).set(
-      <String, dynamic>{
-        'fcmTokens': FieldValue.arrayUnion(<String>[token]),
-        'notificationsUpdatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+  Future<void> _saveToken({required String uid, required String token}) {
+    return _firestore.collection('users').doc(uid).set(<String, dynamic>{
+      'fcmTokens': FieldValue.arrayUnion(<String>[token]),
+      'notificationsUpdatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   void _showForegroundMessage(RemoteMessage message) {
@@ -143,10 +159,21 @@ class NotificationService {
     return (data['body'] ?? data['message'] ?? '').toString();
   }
 
+  void _handleNotificationOpen(RemoteMessage message) {
+    debugPrint(
+      'Notification opened: type=${message.data['type']} '
+      'callId=${message.data['callId']} '
+      'chatId=${message.data['chatId']}',
+    );
+    // IncomingCallListener сам увидит активный звонок в Firestore и покажет
+    // зелёную/красную кнопки после открытия приложения.
+  }
+
   Future<void> dispose() async {
     await _authSubscription?.cancel();
     await _tokenSubscription?.cancel();
     await _foregroundSubscription?.cancel();
+    await _openedAppSubscription?.cancel();
     _initialized = false;
   }
 }

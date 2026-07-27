@@ -28,6 +28,8 @@ messaging.onBackgroundMessage((message) => {
     icon: "icons/Icon-192.png",
     badge: "icons/Icon-192.png",
     tag: data.tag || data.type || "love-project-notification",
+    renotify: true,
+    requireInteraction: data.type === "call",
     data,
   };
 
@@ -36,6 +38,7 @@ messaging.onBackgroundMessage((message) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
+  const appUrl = new URL("./", self.location.href).href;
   event.waitUntil(
     clients
       .matchAll({ type: "window", includeUncontrolled: true })
@@ -43,7 +46,7 @@ self.addEventListener("notificationclick", (event) => {
         for (const client of windowClients) {
           if ("focus" in client) return client.focus();
         }
-        return clients.openWindow("./");
+        return clients.openWindow(appUrl);
       })
   );
 });

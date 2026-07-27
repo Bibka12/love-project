@@ -334,6 +334,7 @@ class _CallScreenState extends State<CallScreen> {
       await _peerConnection!.setRemoteDescription(offer);
       _remoteDescriptionSet = true;
       await _flushRemoteCandidates();
+      await _prepareVideoTransceiverForAnswer();
       final answer = await _peerConnection!.createAnswer();
       await _peerConnection!.setLocalDescription(answer);
       await CallService.answerCall(callId: callId, answer: answer);
@@ -356,6 +357,17 @@ class _CallScreenState extends State<CallScreen> {
       }
       _peerConnection?.addCandidate(candidate);
     });
+  }
+
+  Future<void> _prepareVideoTransceiverForAnswer() async {
+    final transceivers =
+        await _peerConnection?.getTransceivers() ?? <RTCRtpTransceiver>[];
+    for (final transceiver in transceivers) {
+      if (transceiver.receiver.track?.kind == 'video') {
+        await transceiver.setDirection(TransceiverDirection.SendRecv);
+        return;
+      }
+    }
   }
 
   Future<void> _flushLocalCandidates({
@@ -843,7 +855,8 @@ class _CallScreenState extends State<CallScreen> {
             if (_remoteCameraEnabled && _remoteRenderer.srcObject != null)
               RTCVideoView(
                 _remoteRenderer,
-                objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                objectFit:
+                    RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
               )
             else
               _CallBackground(photoUrl: photoUrl),
@@ -857,9 +870,9 @@ class _CallScreenState extends State<CallScreen> {
                   borderRadius: BorderRadius.circular(22),
                   child: RTCVideoView(
                     _localRenderer,
-                    mirror: false,
+                    mirror: _usingFrontCamera,
                     objectFit:
-                        RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                        RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
                   ),
                 ),
               ),

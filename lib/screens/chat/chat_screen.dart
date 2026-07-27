@@ -27,7 +27,8 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen>
+    with WidgetsBindingObserver {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   late final Stream<List<ChatMessage>> _messagesStream;
@@ -51,11 +52,12 @@ class _ChatScreenState extends State<ChatScreen> {
   Timer? _typingTimer;
   bool _typingSent = false;
   final Set<String> _hiddenOwnReactions = <String>{};
-  final Map<String, int> _reactionAnimationVersions = <String, int>{};
+  final Map<String, String> _pendingReactionAnimations = <String, String>{};
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
     final currentUser = FirebaseAuth.instance.currentUser;
     _messagesStream = currentUser == null
@@ -69,6 +71,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _typingTimer?.cancel();
     _recordingTimer?.cancel();
     _controller.removeListener(_handleTextChanged);
@@ -77,6 +80,18 @@ class _ChatScreenState extends State<ChatScreen> {
     _focusNode.dispose();
     _voiceRecorder.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeMetrics() {
+    // На Android и в установленной PWA системная кнопка «Назад» иногда
+    // закрывает клавиатуру раньше, чем Flutter обновляет нижний inset.
+    // Дополнительный кадр сразу возвращает чату освободившееся место.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
   }
 
   void _handleTextChanged() {
@@ -130,7 +145,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final currentUser = FirebaseAuth.instance.currentUser;
     final text = _controller.text.trim();
     final replyTo = _buildReplyPayload(currentUser);
-    final keepKeyboardOpen = kIsWeb || _focusNode.hasFocus;
+    final keepKeyboardOpen = _focusNode.hasFocus;
 
     if (currentUser == null || text.isEmpty || _sending) {
       return;
@@ -142,7 +157,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
     _controller.clear();
     if (keepKeyboardOpen) {
-      _restoreComposerFocus();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _focusNode.requestFocus();
+        }
+      });
     }
     _setTyping(false);
 
@@ -184,25 +203,9 @@ class _ChatScreenState extends State<ChatScreen> {
         setState(() {
           _sending = false;
         });
-        if (keepKeyboardOpen) {
-          _restoreComposerFocus();
-        }
       }
 
     }
-  }
-
-  void _restoreComposerFocus() {
-    if (!mounted) return;
-
-    _focusNode.requestFocus();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _focusNode.requestFocus();
-      if (kIsWeb) {
-        SystemChannels.textInput.invokeMethod<void>('TextInput.show');
-      }
-    });
   }
 
   String _replyPreview(ChatMessage message) {
@@ -269,6 +272,11 @@ class _ChatScreenState extends State<ChatScreen> {
     if (removing && mounted) {
       setState(() {
         _hiddenOwnReactions.add(message.id);
+        _pendingReactionAnimations.remove(message.id);
+      });
+    } else if (mounted) {
+      setState(() {
+        _pendingReactionAnimations[message.id] = emoji;
       });
     }
 
@@ -279,17 +287,15 @@ class _ChatScreenState extends State<ChatScreen> {
         messageId: message.id,
         emoji: emoji,
       );
-      if (!removing && mounted) {
-        setState(() {
-          _reactionAnimationVersions[message.id] =
-              (_reactionAnimationVersions[message.id] ?? 0) + 1;
-        });
-      }
     } catch (error) {
       if (!mounted) return;
       if (removing) {
         setState(() {
           _hiddenOwnReactions.remove(message.id);
+        });
+      } else {
+        setState(() {
+          _pendingReactionAnimations.remove(message.id);
         });
       }
       ScaffoldMessenger.of(context).showSnackBar(
@@ -838,7 +844,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final hasPhoto = friend.photoUrl.trim().isNotEmpty;
 
     return Scaffold(
-      resizeToAvoidBottomInset: true,
+      resizeToAvoidBottomInset: false,
       backgroundColor: const Color(0xff070810),
       appBar: AppBar(
         backgroundColor: const Color(0xff0D0E17),
@@ -1056,7 +1062,13 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ],
       ),
-      body: currentUser == null
+      body: AnimatedPadding(
+        duration: const Duration(milliseconds: 140),
+        curve: Curves.easeOutCubic,
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: currentUser == null
           ? _buildNotLoggedIn()
           : Container(
               decoration: const BoxDecoration(
@@ -1115,6 +1127,19 @@ class _ChatScreenState extends State<ChatScreen> {
                                 .isEmpty) {
                               _hiddenOwnReactions.remove(message.id);
                             }
+                            final pendingReaction =
+                                _pendingReactionAnimations[message.id];
+                            final animateReaction =
+                                pendingReaction != null &&
+                                message.reactionFor(currentUser.uid) ==
+                                    pendingReaction;
+                            if (animateReaction) {
+                              WidgetsBinding.instance
+                                  .addPostFrameCallback((_) {
+                                _pendingReactionAnimations
+                                    .remove(message.id);
+                              });
+                            }
 
                             return _SwipeToReply(
                               key: ValueKey<String>('reply_${message.id}'),
@@ -1131,11 +1156,9 @@ class _ChatScreenState extends State<ChatScreen> {
                                   mine: mine,
                                   time: _formatTime(message.createdAt),
                                   currentUid: currentUser.uid,
-                                  reactionAnimationVersion:
-                                      _reactionAnimationVersions[message.id] ??
-                                      0,
                                   hideCurrentUserReaction:
                                       _hiddenOwnReactions.contains(message.id),
+                                  animateReaction: animateReaction,
                                 ),
                               ),
                             );
@@ -1148,6 +1171,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 ],
               ),
             ),
+      ),
     );
   }
 
@@ -1402,21 +1426,17 @@ class _ChatScreenState extends State<ChatScreen> {
                                 ),
                               ),
                             )
-                          : Focus(
-                              canRequestFocus: false,
-                              descendantsAreFocusable: false,
-                              child: IconButton(
-                                onPressed: _hasText ? _send : null,
-                                icon: Icon(
-                                  _hasText
-                                      ? Icons.send_rounded
-                                      : (_recordingVoice
-                                          ? Icons.mic_rounded
-                                          : Icons.mic_none_rounded),
-                                  color: _hasText || _recordingVoice
-                                      ? Colors.white
-                                      : Colors.white54,
-                                ),
+                          : IconButton(
+                              onPressed: _hasText ? _send : null,
+                              icon: Icon(
+                                _hasText
+                                    ? Icons.send_rounded
+                                    : (_recordingVoice
+                                        ? Icons.mic_rounded
+                                        : Icons.mic_none_rounded),
+                                color: _hasText || _recordingVoice
+                                    ? Colors.white
+                                    : Colors.white54,
                               ),
                             ),
                     ),
@@ -1746,16 +1766,16 @@ class _MessageBubble extends StatelessWidget {
     required this.mine,
     required this.time,
     required this.currentUid,
-    required this.reactionAnimationVersion,
     required this.hideCurrentUserReaction,
+    required this.animateReaction,
   });
 
   final ChatMessage message;
   final bool mine;
   final String time;
   final String currentUid;
-  final int reactionAnimationVersion;
   final bool hideCurrentUserReaction;
+  final bool animateReaction;
 
   @override
   Widget build(BuildContext context) {
@@ -1836,11 +1856,11 @@ class _MessageBubble extends StatelessWidget {
                   bottom: -12,
                   left: mine ? null : 9,
                   right: mine ? 9 : null,
-                  child: reactionAnimationVersion > 0
+                  child: animateReaction
                       ? _ReactionLandingAnimation(
                           key: ValueKey<String>(
-                            'reaction_${message.id}_'
-                            '$reactionAnimationVersion',
+                            'reaction_once_${message.id}_'
+                            '${message.reactionFor(currentUid)}',
                           ),
                           child: _buildReactions(visibleReactions),
                         )

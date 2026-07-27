@@ -10,7 +10,16 @@ class NotificationSender {
   static const String _workerUrl =
       'https://love-notifications.genshinxiaofans.workers.dev';
 
-  static Future<void> sendMessageNotification({
+  static Future<bool> sendCallNotification({
+    required String callId,
+  }) {
+    return _send(<String, String>{
+      'kind': 'call',
+      'callId': callId,
+    });
+  }
+
+  static Future<bool> sendMessageNotification({
     required String chatId,
     required String messageId,
   }) {
@@ -21,43 +30,54 @@ class NotificationSender {
     });
   }
 
-  static Future<void> sendCallNotification({
-    required String callId,
-  }) {
-    return _send(<String, String>{
-      'kind': 'call',
-      'callId': callId,
-    });
-  }
-
-  static Future<void> _send(Map<String, String> payload) async {
+  static Future<bool> _send(Map<String, String> payload) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
+      if (user == null) {
+        debugPrint('Push was not sent: user is not authorized');
+        return false;
+      }
 
-      final idToken = await user.getIdToken();
-      if (idToken == null || idToken.isEmpty) return;
+      final idToken = await user.getIdToken(true);
+      if (idToken == null || idToken.trim().isEmpty) {
+        debugPrint('Push was not sent: Firebase ID token is empty');
+        return false;
+      }
 
       final response = await http
           .post(
-            Uri.parse('$_workerUrl/notify'),
+            Uri.parse(_workerUrl),
             headers: <String, String>{
               'Authorization': 'Bearer $idToken',
-              'Content-Type': 'application/json',
+              'Content-Type': 'application/json; charset=UTF-8',
             },
             body: jsonEncode(payload),
           )
-          .timeout(const Duration(seconds: 12));
+          .timeout(const Duration(seconds: 15));
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
         debugPrint(
-          'Notification Worker error ${response.statusCode}: '
-          '${response.body}',
+          'Push Worker error ${response.statusCode}: ${response.body}',
         );
+        return false;
       }
-    } catch (error) {
-      // Уведомление не должно ломать отправку сообщения или звонок.
-      debugPrint('Notification Worker request failed: $error');
+
+      final decoded = jsonDecode(response.body);
+      final result = decoded is Map<String, dynamic>
+          ? decoded
+          : <String, dynamic>{};
+      final sent = (result['sent'] as num?)?.toInt() ?? 0;
+      final reason = result['reason']?.toString() ?? '';
+
+      debugPrint(
+        'Push Worker result: sent=$sent'
+        '${reason.isEmpty ? '' : ', reason=$reason'}',
+      );
+      return sent > 0;
+    } catch (error, stackTrace) {
+      debugPrint('Push request failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      return false;
     }
   }
 }

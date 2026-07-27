@@ -372,11 +372,17 @@
       window.addEventListener("load", function () {
         navigator.serviceWorker
           .register("firebase-messaging-sw.js", {
-            scope: "firebase-cloud-messaging-push-scope/",
+            scope: "./firebase-cloud-messaging-push-scope",
+          })
+          .then(function (registration) {
+            console.log(
+              "Firebase Messaging service worker registered:",
+              registration.scope
+            );
           })
           .catch(function (error) {
             console.error(
-              "Firebase Messaging service worker registration failed:",
+              "Firebase Messaging service worker failed:",
               error
             );
           });
