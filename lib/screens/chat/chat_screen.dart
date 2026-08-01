@@ -27,8 +27,7 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen>
-    with WidgetsBindingObserver {
+class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   late final Stream<List<ChatMessage>> _messagesStream;
@@ -57,7 +56,6 @@ class _ChatScreenState extends State<ChatScreen>
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
 
     final currentUser = FirebaseAuth.instance.currentUser;
     _messagesStream = currentUser == null
@@ -71,7 +69,6 @@ class _ChatScreenState extends State<ChatScreen>
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     _typingTimer?.cancel();
     _recordingTimer?.cancel();
     _controller.removeListener(_handleTextChanged);
@@ -80,18 +77,6 @@ class _ChatScreenState extends State<ChatScreen>
     _focusNode.dispose();
     _voiceRecorder.dispose();
     super.dispose();
-  }
-
-  @override
-  void didChangeMetrics() {
-    // На Android и в установленной PWA системная кнопка «Назад» иногда
-    // закрывает клавиатуру раньше, чем Flutter обновляет нижний inset.
-    // Дополнительный кадр сразу возвращает чату освободившееся место.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        setState(() {});
-      }
-    });
   }
 
   void _handleTextChanged() {
@@ -145,7 +130,8 @@ class _ChatScreenState extends State<ChatScreen>
     final currentUser = FirebaseAuth.instance.currentUser;
     final text = _controller.text.trim();
     final replyTo = _buildReplyPayload(currentUser);
-    final keepKeyboardOpen = _focusNode.hasFocus;
+    final keepKeyboardOpen =
+        _focusNode.hasFocus || MediaQuery.viewInsetsOf(context).bottom > 0;
 
     if (currentUser == null || text.isEmpty || _sending) {
       return;
@@ -203,8 +189,17 @@ class _ChatScreenState extends State<ChatScreen>
         setState(() {
           _sending = false;
         });
-      }
 
+        // После обновления Firestore и пересборки кнопки
+        // возвращаем фокус в то же поле, не закрывая клавиатуру.
+        if (keepKeyboardOpen) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && _focusNode.canRequestFocus) {
+              _focusNode.requestFocus();
+            }
+          });
+        }
+      }
     }
   }
 
@@ -318,9 +313,7 @@ class _ChatScreenState extends State<ChatScreen>
             decoration: BoxDecoration(
               color: const Color(0xff20222B),
               borderRadius: BorderRadius.circular(24),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.07),
-              ),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -329,16 +322,16 @@ class _ChatScreenState extends State<ChatScreen>
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: reactions.map((emoji) {
                     return InkResponse(
-                      radius: 25,
+                      radius: 22,
                       onTap: () {
                         Navigator.pop(sheetContext);
                         _toggleReaction(message, emoji);
                       },
                       child: Padding(
-                        padding: const EdgeInsets.all(8),
+                        padding: const EdgeInsets.all(5),
                         child: Text(
                           emoji,
-                          style: const TextStyle(fontSize: 25),
+                          style: const TextStyle(fontSize: 22),
                         ),
                       ),
                     );
@@ -392,8 +385,7 @@ class _ChatScreenState extends State<ChatScreen>
                     _deleteMessageForMe(message);
                   },
                 ),
-                if (message.senderUid ==
-                    FirebaseAuth.instance.currentUser?.uid)
+                if (message.senderUid == FirebaseAuth.instance.currentUser?.uid)
                   ListTile(
                     leading: const Icon(
                       Icons.delete_forever_rounded,
@@ -506,9 +498,9 @@ class _ChatScreenState extends State<ChatScreen>
       setState(() {
         _replyingTo = null;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Чат очищен только у вас')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Чат очищен только у вас')));
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -660,7 +652,11 @@ class _ChatScreenState extends State<ChatScreen>
   }
 
   Future<void> _startVoiceRecording() async {
-    if (_hasText || _sending || _uploadingImage || _uploadingVoice || _recordingVoice) {
+    if (_hasText ||
+        _sending ||
+        _uploadingImage ||
+        _uploadingVoice ||
+        _recordingVoice) {
       return;
     }
 
@@ -844,7 +840,7 @@ class _ChatScreenState extends State<ChatScreen>
     final hasPhoto = friend.photoUrl.trim().isNotEmpty;
 
     return Scaffold(
-      resizeToAvoidBottomInset: false,
+      resizeToAvoidBottomInset: true,
       backgroundColor: const Color(0xff070810),
       appBar: AppBar(
         backgroundColor: const Color(0xff0D0E17),
@@ -943,8 +939,9 @@ class _ChatScreenState extends State<ChatScreen>
                                   boxShadow: online
                                       ? <BoxShadow>[
                                           BoxShadow(
-                                            color: const Color(0xff4CE27A)
-                                                .withValues(alpha: 0.5),
+                                            color: const Color(
+                                              0xff4CE27A,
+                                            ).withValues(alpha: 0.5),
                                             blurRadius: 8,
                                           ),
                                         ]
@@ -1032,10 +1029,7 @@ class _ChatScreenState extends State<ChatScreen>
                       color: Colors.white70,
                     ),
                   )
-                : const Icon(
-                    Icons.more_vert_rounded,
-                    color: Colors.white70,
-                  ),
+                : const Icon(Icons.more_vert_rounded, color: Colors.white70),
             onSelected: (value) {
               if (value == 'clear') {
                 _clearChatForMe();
@@ -1046,15 +1040,9 @@ class _ChatScreenState extends State<ChatScreen>
                 value: 'clear',
                 child: Row(
                   children: <Widget>[
-                    Icon(
-                      Icons.delete_sweep_outlined,
-                      color: Colors.redAccent,
-                    ),
+                    Icon(Icons.delete_sweep_outlined, color: Colors.redAccent),
                     SizedBox(width: 12),
-                    Text(
-                      'Очистить чат',
-                      style: TextStyle(color: Colors.white),
-                    ),
+                    Text('Очистить чат', style: TextStyle(color: Colors.white)),
                   ],
                 ),
               ),
@@ -1062,13 +1050,7 @@ class _ChatScreenState extends State<ChatScreen>
           ),
         ],
       ),
-      body: AnimatedPadding(
-        duration: const Duration(milliseconds: 140),
-        curve: Curves.easeOutCubic,
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.viewInsetsOf(context).bottom,
-        ),
-        child: currentUser == null
+      body: currentUser == null
           ? _buildNotLoggedIn()
           : Container(
               decoration: const BoxDecoration(
@@ -1122,9 +1104,7 @@ class _ChatScreenState extends State<ChatScreen>
                           itemBuilder: (context, index) {
                             final message = messages[index];
                             final mine = message.isMine(currentUser.uid);
-                            if (message
-                                .reactionFor(currentUser.uid)
-                                .isEmpty) {
+                            if (message.reactionFor(currentUser.uid).isEmpty) {
                               _hiddenOwnReactions.remove(message.id);
                             }
                             final pendingReaction =
@@ -1134,10 +1114,8 @@ class _ChatScreenState extends State<ChatScreen>
                                 message.reactionFor(currentUser.uid) ==
                                     pendingReaction;
                             if (animateReaction) {
-                              WidgetsBinding.instance
-                                  .addPostFrameCallback((_) {
-                                _pendingReactionAnimations
-                                    .remove(message.id);
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                _pendingReactionAnimations.remove(message.id);
                               });
                             }
 
@@ -1149,15 +1127,14 @@ class _ChatScreenState extends State<ChatScreen>
                                 onDoubleTap: () {
                                   _toggleReaction(message, '❤️');
                                 },
-                                onLongPress: () =>
-                                    _showMessageActions(message),
+                                onLongPress: () => _showMessageActions(message),
                                 child: _MessageBubble(
                                   message: message,
                                   mine: mine,
                                   time: _formatTime(message.createdAt),
                                   currentUid: currentUser.uid,
-                                  hideCurrentUserReaction:
-                                      _hiddenOwnReactions.contains(message.id),
+                                  hideCurrentUserReaction: _hiddenOwnReactions
+                                      .contains(message.id),
                                   animateReaction: animateReaction,
                                 ),
                               ),
@@ -1171,7 +1148,6 @@ class _ChatScreenState extends State<ChatScreen>
                 ],
               ),
             ),
-      ),
     );
   }
 
@@ -1321,128 +1297,138 @@ class _ChatScreenState extends State<ChatScreen>
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: <Widget>[
-              Expanded(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: const Color(0xff20222B),
-                    borderRadius: BorderRadius.circular(25),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.06),
-                    ),
-                  ),
-                  child: TextField(
-                    key: const ValueKey<String>('chat_message_input'),
-                    controller: _controller,
-                    focusNode: _focusNode,
-                    minLines: 1,
-                    maxLines: 5,
-                    enabled: !_recordingVoice && !_uploadingVoice,
-                    textInputAction: TextInputAction.newline,
-                    textCapitalization: TextCapitalization.sentences,
-                    style: GoogleFonts.poppins(
-                      color: Colors.white,
-                      fontSize: 14,
-                    ),
-                    decoration: InputDecoration(
-                      hintText: _recordingVoice
-                          ? 'Запись ${_formatRecordingDuration(_recordingSeconds)} — отпусти для отправки'
-                          : 'Сообщение...',
-                      hintStyle: GoogleFonts.poppins(
-                        color: Colors.white38,
-                        fontSize: 14,
-                      ),
-                      prefixIcon: IconButton(
-                        onPressed: _uploadingImage || _sending || _recordingVoice || _uploadingVoice
-                            ? null
-                            : _showImageSourceSheet,
-                        icon: _uploadingImage
-                            ? const SizedBox(
-                                width: 19,
-                                height: 19,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Color(0xffFF5A9E),
-                                ),
-                              )
-                            : const Icon(
-                                Icons.add_photo_alternate_rounded,
-                                color: Colors.white54,
-                              ),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 4,
-                        vertical: 12,
-                      ),
-                      border: InputBorder.none,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              AnimatedScale(
-                scale: _hasText || _recordingVoice ? 1 : 0.92,
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOutBack,
-                child: GestureDetector(
-                  onLongPressStart: _hasText ? null : (_) => _startVoiceRecording(),
-                  onLongPressEnd: _hasText ? null : (_) => _finishVoiceRecording(),
-                  child: SizedBox(
-                    width: 50,
-                    height: 50,
-                    child: DecoratedBox(
+                  Expanded(
+                    child: Container(
                       decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: _hasText || _recordingVoice
-                            ? const LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: <Color>[
-                                  Color(0xffFF3B82),
-                                  Color(0xffC642FF),
-                                ],
-                              )
-                            : null,
-                        color: _hasText || _recordingVoice
-                            ? null
-                            : const Color(0xff242630),
-                        boxShadow: _hasText || _recordingVoice
-                            ? <BoxShadow>[
-                                BoxShadow(
-                                  color: Colors.pinkAccent.withValues(alpha: 0.28),
-                                  blurRadius: 18,
-                                  spreadRadius: 1,
-                                ),
-                              ]
-                            : null,
+                        color: const Color(0xff20222B),
+                        borderRadius: BorderRadius.circular(25),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.06),
+                        ),
                       ),
-                      child: _uploadingVoice || _sending
-                          ? const Center(
-                              child: SizedBox(
-                                width: 19,
-                                height: 19,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            )
-                          : IconButton(
-                              onPressed: _hasText ? _send : null,
-                              icon: Icon(
-                                _hasText
-                                    ? Icons.send_rounded
-                                    : (_recordingVoice
-                                        ? Icons.mic_rounded
-                                        : Icons.mic_none_rounded),
-                                color: _hasText || _recordingVoice
-                                    ? Colors.white
-                                    : Colors.white54,
-                              ),
-                            ),
+                      child: TextField(
+                        key: const ValueKey<String>('chat_message_input'),
+                        controller: _controller,
+                        focusNode: _focusNode,
+                        minLines: 1,
+                        maxLines: 5,
+                        enabled: !_recordingVoice && !_uploadingVoice,
+                        textInputAction: TextInputAction.newline,
+                        textCapitalization: TextCapitalization.sentences,
+                        style: GoogleFonts.poppins(
+                          color: Colors.white,
+                          fontSize: 14,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: _recordingVoice
+                              ? 'Запись ${_formatRecordingDuration(_recordingSeconds)} — отпусти для отправки'
+                              : 'Сообщение...',
+                          hintStyle: GoogleFonts.poppins(
+                            color: Colors.white38,
+                            fontSize: 14,
+                          ),
+                          prefixIcon: IconButton(
+                            onPressed:
+                                _uploadingImage ||
+                                    _sending ||
+                                    _recordingVoice ||
+                                    _uploadingVoice
+                                ? null
+                                : _showImageSourceSheet,
+                            icon: _uploadingImage
+                                ? const SizedBox(
+                                    width: 19,
+                                    height: 19,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Color(0xffFF5A9E),
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.add_photo_alternate_rounded,
+                                    color: Colors.white54,
+                                  ),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 12,
+                          ),
+                          border: InputBorder.none,
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              ),
+                  const SizedBox(width: 8),
+                  AnimatedScale(
+                    scale: _hasText || _recordingVoice ? 1 : 0.92,
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOutBack,
+                    child: GestureDetector(
+                      onLongPressStart: _hasText
+                          ? null
+                          : (_) => _startVoiceRecording(),
+                      onLongPressEnd: _hasText
+                          ? null
+                          : (_) => _finishVoiceRecording(),
+                      child: SizedBox(
+                        width: 50,
+                        height: 50,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: _hasText || _recordingVoice
+                                ? const LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: <Color>[
+                                      Color(0xffFF3B82),
+                                      Color(0xffC642FF),
+                                    ],
+                                  )
+                                : null,
+                            color: _hasText || _recordingVoice
+                                ? null
+                                : const Color(0xff242630),
+                            boxShadow: _hasText || _recordingVoice
+                                ? <BoxShadow>[
+                                    BoxShadow(
+                                      color: Colors.pinkAccent.withValues(
+                                        alpha: 0.28,
+                                      ),
+                                      blurRadius: 18,
+                                      spreadRadius: 1,
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          child: _uploadingVoice || _sending
+                              ? const Center(
+                                  child: SizedBox(
+                                    width: 19,
+                                    height: 19,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                )
+                              : IconButton(
+                                  onPressed: _hasText ? _send : null,
+                                  icon: Icon(
+                                    _hasText
+                                        ? Icons.send_rounded
+                                        : (_recordingVoice
+                                              ? Icons.mic_rounded
+                                              : Icons.mic_none_rounded),
+                                    color: _hasText || _recordingVoice
+                                        ? Colors.white
+                                        : Colors.white54,
+                                  ),
+                                ),
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ],
@@ -1454,11 +1440,7 @@ class _ChatScreenState extends State<ChatScreen>
 }
 
 class _SwipeToReply extends StatefulWidget {
-  const _SwipeToReply({
-    super.key,
-    required this.child,
-    required this.onReply,
-  });
+  const _SwipeToReply({super.key, required this.child, required this.onReply});
 
   final Widget child;
   final VoidCallback onReply;
@@ -1524,9 +1506,7 @@ class _SwipeToReplyState extends State<_SwipeToReply> {
                   width: 34,
                   height: 34,
                   decoration: BoxDecoration(
-                    color: const Color(
-                      0xffFF3B82,
-                    ).withValues(alpha: 0.17),
+                    color: const Color(0xffFF3B82).withValues(alpha: 0.17),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
@@ -1580,60 +1560,60 @@ class _ReplyComposer extends StatelessWidget {
           ),
           child: Row(
             children: <Widget>[
-          Container(
-            width: 4,
-            height: 48,
-            decoration: BoxDecoration(
-              color: const Color(0xffFF4F93),
-              borderRadius: BorderRadius.circular(8),
-            ),
-          ),
-          const SizedBox(width: 11),
-          const Icon(
-            Icons.reply_rounded,
-            color: Color(0xffFF5A9E),
-            size: 21,
-          ),
-          const SizedBox(width: 9),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Text(
-                    'Ответ для $senderName',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.poppins(
-                      color: const Color(0xffFF6AA7),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    preview,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.poppins(
-                      color: Colors.white60,
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
+              Container(
+                width: 4,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: const Color(0xffFF4F93),
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
-            ),
-          ),
-          IconButton(
-            onPressed: onCancel,
-            icon: const Icon(
-              Icons.close_rounded,
-              color: Colors.white54,
-              size: 21,
-            ),
-          ),
+              const SizedBox(width: 11),
+              const Icon(
+                Icons.reply_rounded,
+                color: Color(0xffFF5A9E),
+                size: 21,
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Text(
+                        'Ответ для $senderName',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.poppins(
+                          color: const Color(0xffFF6AA7),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        preview,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.poppins(
+                          color: Colors.white60,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: onCancel,
+                icon: const Icon(
+                  Icons.close_rounded,
+                  color: Colors.white54,
+                  size: 21,
+                ),
+              ),
             ],
           ),
         ),
@@ -1643,10 +1623,7 @@ class _ReplyComposer extends StatelessWidget {
 }
 
 class _ReactionLandingAnimation extends StatefulWidget {
-  const _ReactionLandingAnimation({
-    super.key,
-    required this.child,
-  });
+  const _ReactionLandingAnimation({super.key, required this.child});
 
   final Widget child;
 
@@ -1672,41 +1649,55 @@ class _ReactionLandingAnimationState extends State<_ReactionLandingAnimation>
 
     _scale = TweenSequence<double>(<TweenSequenceItem<double>>[
       TweenSequenceItem<double>(
-        tween: Tween<double>(begin: 0.82, end: 1.18)
-            .chain(CurveTween(curve: Curves.easeOutBack)),
+        tween: Tween<double>(
+          begin: 0.82,
+          end: 1.18,
+        ).chain(CurveTween(curve: Curves.easeOutBack)),
         weight: 28,
       ),
       TweenSequenceItem<double>(
-        tween: Tween<double>(begin: 1.18, end: 0.96)
-            .chain(CurveTween(curve: Curves.easeInOut)),
+        tween: Tween<double>(
+          begin: 1.18,
+          end: 0.96,
+        ).chain(CurveTween(curve: Curves.easeInOut)),
         weight: 20,
       ),
       TweenSequenceItem<double>(
-        tween: Tween<double>(begin: 0.96, end: 1.06)
-            .chain(CurveTween(curve: Curves.easeOut)),
+        tween: Tween<double>(
+          begin: 0.96,
+          end: 1.06,
+        ).chain(CurveTween(curve: Curves.easeOut)),
         weight: 18,
       ),
       TweenSequenceItem<double>(
-        tween: Tween<double>(begin: 1.06, end: 1)
-            .chain(CurveTween(curve: Curves.easeOut)),
+        tween: Tween<double>(
+          begin: 1.06,
+          end: 1,
+        ).chain(CurveTween(curve: Curves.easeOut)),
         weight: 34,
       ),
     ]).animate(_controller);
 
     _verticalOffset = TweenSequence<double>(<TweenSequenceItem<double>>[
       TweenSequenceItem<double>(
-        tween: Tween<double>(begin: 0, end: -19)
-            .chain(CurveTween(curve: Curves.easeOutCubic)),
+        tween: Tween<double>(
+          begin: 0,
+          end: -19,
+        ).chain(CurveTween(curve: Curves.easeOutCubic)),
         weight: 42,
       ),
       TweenSequenceItem<double>(
-        tween: Tween<double>(begin: -19, end: -14)
-            .chain(CurveTween(curve: Curves.easeInOut)),
+        tween: Tween<double>(
+          begin: -19,
+          end: -14,
+        ).chain(CurveTween(curve: Curves.easeInOut)),
         weight: 20,
       ),
       TweenSequenceItem<double>(
-        tween: Tween<double>(begin: -14, end: 0)
-            .chain(CurveTween(curve: Curves.bounceOut)),
+        tween: Tween<double>(
+          begin: -14,
+          end: 0,
+        ).chain(CurveTween(curve: Curves.bounceOut)),
         weight: 38,
       ),
     ]).animate(_controller);
@@ -1748,10 +1739,7 @@ class _ReactionLandingAnimationState extends State<_ReactionLandingAnimation>
           offset: Offset(0, _verticalOffset.value),
           child: Transform.rotate(
             angle: _rotation.value,
-            child: Transform.scale(
-              scale: _scale.value,
-              child: child,
-            ),
+            child: Transform.scale(scale: _scale.value, child: child),
           ),
         );
       },
@@ -1790,72 +1778,68 @@ class _MessageBubble extends StatelessWidget {
       child: Align(
         alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
         child: Padding(
-          padding: EdgeInsets.only(
-            bottom: visibleReactions.isEmpty ? 0 : 13,
-          ),
+          padding: EdgeInsets.only(bottom: visibleReactions.isEmpty ? 0 : 9),
           child: Stack(
             clipBehavior: Clip.none,
             children: <Widget>[
               Container(
-          constraints: BoxConstraints(
-            maxWidth: bubbleMaxWidth,
-          ),
-          margin: const EdgeInsets.symmetric(vertical: 3),
-          padding: message.isImage
-              ? const EdgeInsets.all(4)
-              : message.isVoice
-                  ? const EdgeInsets.fromLTRB(12, 10, 10, 7)
-                  : const EdgeInsets.fromLTRB(14, 10, 10, 7),
-          decoration: BoxDecoration(
-            gradient: mine
-                ? const LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: <Color>[Color(0xffFF3B82), Color(0xffC642FF)],
-                  )
-                : null,
-            color: mine ? null : const Color(0xff23252E),
-            borderRadius: BorderRadius.only(
-              topLeft: const Radius.circular(20),
-              topRight: const Radius.circular(20),
-              bottomLeft: Radius.circular(mine ? 20 : 5),
-              bottomRight: Radius.circular(mine ? 5 : 20),
-            ),
-            border: mine
-                ? null
-                : Border.all(color: Colors.white.withValues(alpha: 0.05)),
-            boxShadow: mine
-                ? <BoxShadow>[
-                    BoxShadow(
-                      color: Colors.pinkAccent.withValues(alpha: 0.12),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ]
-                : null,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              if (message.hasReply) ...<Widget>[
-                _buildReplyQuote(),
-                const SizedBox(height: 7),
-              ],
-              if (message.isImage)
-                _buildImageMessage(context)
-              else if (message.isVoice)
-                _buildVoiceMessage()
-              else
-                _buildTextMessage(),
-            ],
-          ),
+                constraints: BoxConstraints(maxWidth: bubbleMaxWidth),
+                margin: const EdgeInsets.symmetric(vertical: 3),
+                padding: message.isImage
+                    ? const EdgeInsets.all(4)
+                    : message.isVoice
+                    ? const EdgeInsets.fromLTRB(12, 10, 10, 7)
+                    : const EdgeInsets.fromLTRB(14, 10, 10, 7),
+                decoration: BoxDecoration(
+                  gradient: mine
+                      ? const LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: <Color>[Color(0xffFF3B82), Color(0xffC642FF)],
+                        )
+                      : null,
+                  color: mine ? null : const Color(0xff23252E),
+                  borderRadius: BorderRadius.only(
+                    topLeft: const Radius.circular(20),
+                    topRight: const Radius.circular(20),
+                    bottomLeft: Radius.circular(mine ? 20 : 5),
+                    bottomRight: Radius.circular(mine ? 5 : 20),
+                  ),
+                  border: mine
+                      ? null
+                      : Border.all(color: Colors.white.withValues(alpha: 0.05)),
+                  boxShadow: mine
+                      ? <BoxShadow>[
+                          BoxShadow(
+                            color: Colors.pinkAccent.withValues(alpha: 0.12),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    if (message.hasReply) ...<Widget>[
+                      _buildReplyQuote(),
+                      const SizedBox(height: 7),
+                    ],
+                    if (message.isImage)
+                      _buildImageMessage(context)
+                    else if (message.isVoice)
+                      _buildVoiceMessage()
+                    else
+                      _buildTextMessage(),
+                  ],
+                ),
               ),
               if (visibleReactions.isNotEmpty)
                 Positioned(
-                  bottom: -12,
-                  left: mine ? null : 9,
-                  right: mine ? 9 : null,
+                  bottom: -8,
+                  left: mine ? null : 8,
+                  right: mine ? 8 : null,
                   child: animateReaction
                       ? _ReactionLandingAnimation(
                           key: ValueKey<String>(
@@ -1881,35 +1865,38 @@ class _MessageBubble extends StatelessWidget {
     final myReaction = visibleReactions[currentUid] ?? '';
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
       decoration: BoxDecoration(
         color: const Color(0xff11121A),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.12),
+          width: 0.8,
+        ),
         boxShadow: <BoxShadow>[
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.35),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
+            color: Colors.black.withValues(alpha: 0.28),
+            blurRadius: 5,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: counts.entries.map((entry) {
-        final selected = entry.key == myReaction;
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 2),
-          child: AnimatedScale(
-            scale: selected ? 1.08 : 1,
-            duration: const Duration(milliseconds: 180),
-            child: Text(
-              entry.value > 1 ? '${entry.key} ${entry.value}' : entry.key,
-              style: const TextStyle(fontSize: 16, height: 1),
+          final selected = entry.key == myReaction;
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 1.5),
+            child: AnimatedScale(
+              scale: selected ? 1.03 : 1,
+              duration: const Duration(milliseconds: 180),
+              child: Text(
+                entry.value > 1 ? '${entry.key} ${entry.value}' : entry.key,
+                style: const TextStyle(fontSize: 13, height: 1),
+              ),
             ),
-          ),
-        );
-      }).toList(),
+          );
+        }).toList(),
       ),
     );
   }
@@ -1925,9 +1912,7 @@ class _MessageBubble extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: mine ? 0.14 : 0.20),
         borderRadius: BorderRadius.circular(12),
-        border: const Border(
-          left: BorderSide(color: Colors.white, width: 3),
-        ),
+        border: const Border(left: BorderSide(color: Colors.white, width: 3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2090,11 +2075,7 @@ class _MessageBubble extends StatelessWidget {
               color: Colors.black.withValues(alpha: 0.52),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: _MessageMeta(
-              mine: mine,
-              time: time,
-              isRead: message.isRead,
-            ),
+            child: _MessageMeta(mine: mine, time: time, isRead: message.isRead),
           ),
         ),
       ],
@@ -2195,10 +2176,7 @@ class _ImageSourceTile extends StatelessWidget {
 }
 
 class _FullScreenImagePage extends StatelessWidget {
-  const _FullScreenImagePage({
-    required this.imageUrl,
-    required this.heroTag,
-  });
+  const _FullScreenImagePage({required this.imageUrl, required this.heroTag});
 
   final String imageUrl;
   final String heroTag;
