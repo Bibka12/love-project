@@ -61,6 +61,36 @@ class MusicAudioHandler extends BaseAudioHandler
       audioPath: 'assets/music/song5.mp3',
       coverPath: 'assets/covers/song5.jpeg',
     ),
+    AppSong(
+      title: 'ZHAQYNYM',
+      artist: 'Sadraddin',
+      audioPath: 'assets/music/song6.mp3',
+      coverPath: 'assets/covers/song6.jpeg',
+    ),
+    AppSong(
+      title: 'Seni oilai',
+      artist: 'Sadraddin',
+      audioPath: 'assets/music/song7.mp3',
+      coverPath: 'assets/covers/song7.jpeg',
+    ),
+    AppSong(
+      title: 'Men Seni Suyemin',
+      artist: 'Son Pascal',
+      audioPath: 'assets/music/song8.mp3',
+      coverPath: 'assets/covers/song8.jpeg',
+    ),
+    AppSong(
+      title: 'Капкан',
+      artist: 'Мот',
+      audioPath: 'assets/music/song9.mp3',
+      coverPath: 'assets/covers/song9.jpg',
+    ),
+    AppSong(
+      title: 'Сүйдім сені',
+      artist: 'Айкын Толепберген',
+      audioPath: 'assets/music/song10.mp3',
+      coverPath: 'assets/covers/song10.jpeg',
+    ),
   ];
 
   StreamSubscription<PlayerState>? _playerStateSubscription;
@@ -167,7 +197,12 @@ class MusicAudioHandler extends BaseAudioHandler
       await coversDirectory.create(recursive: true);
     }
 
-    final extension = assetPath.toLowerCase().endsWith('.png') ? 'png' : 'jpeg';
+    final lowerPath = assetPath.toLowerCase();
+    final extension = lowerPath.endsWith('.png')
+        ? 'png'
+        : lowerPath.endsWith('.jpg')
+        ? 'jpg'
+        : 'jpeg';
     final file = File('${coversDirectory.path}/song_${index + 1}.$extension');
 
     // Перезаписываем файл, чтобы новая обложка появилась после обновления.

@@ -253,7 +253,7 @@ class _MusicScreenState extends State<MusicScreen>
             ),
             const SizedBox(height: 8),
             Text(
-              'Проверь названия файлов: song1.mp3–song5.mp3 и song1.jpeg–song5.jpeg.',
+              'Проверь файлы song1.mp3–song10.mp3 и обложки song1.jpeg–song10.jpeg. Для song9 используется song9.jpg.',
               textAlign: TextAlign.center,
               style: GoogleFonts.poppins(
                 color: Colors.white54,
