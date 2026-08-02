@@ -37,6 +37,7 @@ class MusicAudioHandler extends BaseAudioHandler
 
   late final SharedPreferences _preferences;
   bool _handlingPlaylistEnd = false;
+  int _mediaItemRevision = 0;
 
   final List<AppSong> songs = const [
     AppSong(
@@ -186,7 +187,7 @@ class MusicAudioHandler extends BaseAudioHandler
 
     _indexSubscription = player.currentIndexStream.listen((index) {
       if (index == null || index < 0 || index >= queue.value.length) return;
-      mediaItem.add(queue.value[index]);
+      _publishMediaItem(index);
       _broadcastState();
     });
 
@@ -215,6 +216,39 @@ class MusicAudioHandler extends BaseAudioHandler
       _broadcastState();
     });
 
+    _broadcastState();
+  }
+
+  void _publishMediaItem(int index, {bool force = false}) {
+    if (index < 0 || index >= queue.value.length) return;
+
+    final item = queue.value[index];
+    if (!force) {
+      mediaItem.add(item);
+      return;
+    }
+
+    // Android иногда оставляет старую обложку при переходе назад, если URI
+    // этой обложки уже встречался. Уникальная ревизия заставляет MediaSession
+    // полностью обновить карточку трека, включая artUri.
+    _mediaItemRevision++;
+    mediaItem.add(
+      item.copyWith(
+        extras: {
+          ...?item.extras,
+          'notificationRevision': _mediaItemRevision,
+        },
+      ),
+    );
+  }
+
+  Future<void> _refreshCurrentMediaItem() async {
+    // После seek индекс в потоке обновляется асинхронно. Короткое ожидание
+    // позволяет взять уже новый индекс, а не индекс предыдущего состояния.
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+    final index = player.currentIndex;
+    if (index == null) return;
+    _publishMediaItem(index, force: true);
     _broadcastState();
   }
 
@@ -362,14 +396,31 @@ class MusicAudioHandler extends BaseAudioHandler
 
     if (player.hasNext) {
       await player.seekToNext();
+      await _refreshCurrentMediaItem();
       await player.play();
       return;
     }
 
-    if (player.loopMode == LoopMode.all) {
+    // Последняя песня не является концом плейлиста: начинаем новый круг.
+    // При включённом миксе создаём новый случайный порядок и переходим к
+    // первой песне этого порядка, иначе возвращаемся к первой песне списка.
+    if (player.shuffleModeEnabled && songs.length > 1) {
+      final currentIndex = player.currentIndex ?? songs.length - 1;
+      final random = math.Random();
+      var nextIndex = currentIndex;
+
+      while (nextIndex == currentIndex) {
+        nextIndex = random.nextInt(songs.length);
+      }
+
+      await player.shuffle();
+      await player.seek(Duration.zero, index: nextIndex);
+    } else {
       await player.seek(Duration.zero, index: 0);
-      await player.play();
     }
+
+    await _refreshCurrentMediaItem();
+    await player.play();
   }
 
   @override
@@ -383,6 +434,7 @@ class MusicAudioHandler extends BaseAudioHandler
 
     if (player.hasPrevious) {
       await player.seekToPrevious();
+      await _refreshCurrentMediaItem();
       await player.play();
     } else {
       await player.seek(Duration.zero);
