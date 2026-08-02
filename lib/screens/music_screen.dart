@@ -124,10 +124,6 @@ class MusicPlayerController {
 
     final enableShuffle = !player.shuffleModeEnabled;
 
-    if (enableShuffle) {
-      await player.shuffle();
-    }
-
     await musicAudioHandler.setShuffleMode(
       enableShuffle
           ? AudioServiceShuffleMode.all

@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AppSong {
   const AppSong({
@@ -29,6 +31,12 @@ class MusicAudioHandler extends BaseAudioHandler
 
   final AudioPlayer player = AudioPlayer();
   late final Future<void> ready;
+
+  static const String _shufflePreferenceKey = 'music_shuffle_enabled';
+  static const String _repeatPreferenceKey = 'music_repeat_mode';
+
+  late final SharedPreferences _preferences;
+  bool _handlingPlaylistEnd = false;
 
   final List<AppSong> songs = const [
     AppSong(
@@ -101,6 +109,17 @@ class MusicAudioHandler extends BaseAudioHandler
   StreamSubscription<LoopMode>? _loopSubscription;
 
   Future<void> _initialize() async {
+    _preferences = await SharedPreferences.getInstance();
+
+    final savedShuffle =
+        _preferences.getBool(_shufflePreferenceKey) ?? false;
+    final savedRepeatIndex =
+        _preferences.getInt(_repeatPreferenceKey) ?? LoopMode.off.index;
+    final savedRepeat = savedRepeatIndex >= 0 &&
+            savedRepeatIndex < LoopMode.values.length
+        ? LoopMode.values[savedRepeatIndex]
+        : LoopMode.off;
+
     final mediaItems = <MediaItem>[];
 
     for (int index = 0; index < songs.length; index++) {
@@ -110,7 +129,9 @@ class MusicAudioHandler extends BaseAudioHandler
       // В Web dart:io/path_provider недоступны, поэтому берём asset по URL.
       final Uri coverUri;
       if (kIsWeb) {
-        coverUri = Uri.base.resolve(song.coverPath);
+        // Flutter Web places declared assets inside build/web/assets/.
+        // MediaSession needs the real browser URL rather than an Image.asset key.
+        coverUri = Uri.base.resolve('assets/${song.coverPath}');
       } else {
         final coverFile = await _copyCoverToLocalFile(song.coverPath, index);
         coverUri = coverFile.uri;
@@ -143,12 +164,20 @@ class MusicAudioHandler extends BaseAudioHandler
       preload: true,
     );
 
-    await player.setLoopMode(LoopMode.off);
+    if (savedShuffle) {
+      await player.shuffle();
+    }
+    await player.setShuffleModeEnabled(savedShuffle);
+    await player.setLoopMode(savedRepeat);
 
     mediaItem.add(mediaItems.first);
 
-    _playerStateSubscription = player.playerStateStream.listen((_) {
+    _playerStateSubscription = player.playerStateStream.listen((state) {
       _broadcastState();
+
+      if (state.processingState == ProcessingState.completed) {
+        unawaited(_continueAfterPlaylistEnd());
+      }
     });
 
     _positionSubscription = player.positionStream.listen((_) {
@@ -187,6 +216,35 @@ class MusicAudioHandler extends BaseAudioHandler
     });
 
     _broadcastState();
+  }
+
+  Future<void> _continueAfterPlaylistEnd() async {
+    if (_handlingPlaylistEnd || songs.isEmpty) return;
+
+    _handlingPlaylistEnd = true;
+
+    try {
+      final currentIndex = player.currentIndex ?? 0;
+      var nextIndex = 0;
+
+      if (player.shuffleModeEnabled && songs.length > 1) {
+        final random = math.Random();
+
+        do {
+          nextIndex = random.nextInt(songs.length);
+        } while (nextIndex == currentIndex);
+
+        await player.seek(Duration.zero, index: nextIndex);
+        // Создаём новый случайный порядок для следующего полного круга.
+        await player.shuffle();
+      } else {
+        await player.seek(Duration.zero, index: 0);
+      }
+
+      await player.play();
+    } finally {
+      _handlingPlaylistEnd = false;
+    }
   }
 
   Future<File> _copyCoverToLocalFile(String assetPath, int index) async {
@@ -342,6 +400,7 @@ class MusicAudioHandler extends BaseAudioHandler
     }
 
     await player.setShuffleModeEnabled(enabled);
+    await _preferences.setBool(_shufflePreferenceKey, enabled);
     _broadcastState();
   }
 
@@ -362,6 +421,7 @@ class MusicAudioHandler extends BaseAudioHandler
         break;
     }
 
+    await _preferences.setInt(_repeatPreferenceKey, player.loopMode.index);
     _broadcastState();
   }
 
