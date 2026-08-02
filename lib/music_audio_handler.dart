@@ -171,7 +171,7 @@ class MusicAudioHandler extends BaseAudioHandler
     await player.setShuffleModeEnabled(savedShuffle);
     await player.setLoopMode(savedRepeat);
 
-    mediaItem.add(mediaItems.first);
+    _publishMediaItem(0, force: true);
 
     _playerStateSubscription = player.playerStateStream.listen((state) {
       _broadcastState();
@@ -187,22 +187,22 @@ class MusicAudioHandler extends BaseAudioHandler
 
     _indexSubscription = player.currentIndexStream.listen((index) {
       if (index == null || index < 0 || index >= queue.value.length) return;
-      _publishMediaItem(index);
+      // Даже если эта песня уже играла на прошлом круге, отправляем новую
+      // версию карточки. Иначе Android может оставить старое уведомление.
+      _publishMediaItem(index, force: true);
       _broadcastState();
     });
 
     _durationSubscription = player.durationStream.listen((duration) {
-      final current = mediaItem.value;
-      if (current == null || duration == null) return;
-
-      final updated = current.copyWith(duration: duration);
-      mediaItem.add(updated);
-
+      if (duration == null) return;
       final updatedQueue = [...queue.value];
       final index = player.currentIndex ?? 0;
       if (index >= 0 && index < updatedQueue.length) {
-        updatedQueue[index] = updated;
+        // В очереди всегда оставляем постоянный id песни. Уникальный id нужен
+        // только активной карточке уведомления.
+        updatedQueue[index] = updatedQueue[index].copyWith(duration: duration);
         queue.add(updatedQueue);
+        _publishMediaItem(index, force: true);
       }
 
       _broadcastState();
@@ -234,8 +234,12 @@ class MusicAudioHandler extends BaseAudioHandler
     _mediaItemRevision++;
     mediaItem.add(
       item.copyWith(
+        // На каждом переключении создаём новую системную карточку. Благодаря
+        // этому название и обложка обновляются и на 2-м, и на 100-м круге.
+        id: '${item.id}_play_$_mediaItemRevision',
         extras: {
           ...?item.extras,
+          'originalMediaId': item.id,
           'notificationRevision': _mediaItemRevision,
         },
       ),
@@ -275,6 +279,7 @@ class MusicAudioHandler extends BaseAudioHandler
         await player.seek(Duration.zero, index: 0);
       }
 
+      await _refreshCurrentMediaItem();
       await player.play();
     } finally {
       _handlingPlaylistEnd = false;
@@ -437,7 +442,24 @@ class MusicAudioHandler extends BaseAudioHandler
       await _refreshCurrentMediaItem();
       await player.play();
     } else {
-      await player.seek(Duration.zero);
+      // На первой песне кнопка «назад» продолжает предыдущий круг.
+      if (player.shuffleModeEnabled && songs.length > 1) {
+        final currentIndex = player.currentIndex ?? 0;
+        final random = math.Random();
+        var previousIndex = currentIndex;
+
+        while (previousIndex == currentIndex) {
+          previousIndex = random.nextInt(songs.length);
+        }
+
+        await player.shuffle();
+        await player.seek(Duration.zero, index: previousIndex);
+      } else {
+        await player.seek(Duration.zero, index: songs.length - 1);
+      }
+
+      await _refreshCurrentMediaItem();
+      await player.play();
     }
   }
 
