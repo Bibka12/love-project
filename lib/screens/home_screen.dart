@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../date_screen.dart';
 import 'chat/chats_screen.dart';
@@ -7,6 +8,7 @@ import 'game_screen.dart';
 import 'stars/stars_screen.dart';
 import 'music_screen.dart';
 import 'profile/profile_screen.dart';
+import 'apology_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -50,6 +52,49 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         );
 
     entranceController.forward();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showApologyOnce();
+    });
+  }
+
+  Future<void> _showApologyOnce() async {
+    final preferences = await SharedPreferences.getInstance();
+    final alreadySeen =
+        preferences.getBool('apology_message_v1_seen') ?? false;
+
+    if (alreadySeen || !mounted) return;
+
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+    if (!mounted) return;
+
+    await Navigator.of(context).push<void>(
+      PageRouteBuilder<void>(
+        pageBuilder: (_, animation, secondaryAnimation) =>
+            const ApologyScreen(),
+        transitionsBuilder: (_, animation, secondaryAnimation, child) {
+          final curved = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+          );
+          return FadeTransition(
+            opacity: curved,
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.96, end: 1).animate(curved),
+              child: child,
+            ),
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 500),
+      ),
+    );
+
+    await preferences.setBool('apology_message_v1_seen', true);
+  }
+
+  void openApology() {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(builder: (_) => const ApologyScreen()),
+    );
   }
 
   @override
@@ -299,6 +344,22 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                               onTap: openDateInvitation,
                             ),
                           ),
+
+                          buildCardPage(
+                            index: 3,
+                            child: buildSectionCard(
+                              icon: '💌',
+                              title: 'Мне важно сказать',
+                              subtitle:
+                                  'Несколько честных слов, которые я должен был сказать спокойно.',
+                              hint: 'Это письмо для тебя',
+                              colors: const [
+                                Color(0xff7A163B),
+                                Color(0xff42195F),
+                              ],
+                              onTap: openApology,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -380,7 +441,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
 
-      children: List.generate(3, (index) {
+      children: List.generate(4, (index) {
         final bool selected = currentCardIndex == index;
 
         return AnimatedContainer(

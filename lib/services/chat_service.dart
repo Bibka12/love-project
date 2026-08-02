@@ -639,7 +639,15 @@ class ChatService {
       return;
     }
 
-    final typingReference = _chatRef(cleanCurrentUid, cleanOtherUid)
+    // A typing document may only exist after the first message has created
+    // the parent chat. For a new friend, silently skip typing until then.
+    final chatReference = _chatRef(cleanCurrentUid, cleanOtherUid);
+    final chatSnapshot = await chatReference.get();
+    if (!chatSnapshot.exists) {
+      return;
+    }
+
+    final typingReference = chatReference
         .collection('typing')
         .doc(cleanCurrentUid);
 
